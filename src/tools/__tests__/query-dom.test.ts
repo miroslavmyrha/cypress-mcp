@@ -65,6 +65,13 @@ describe('queryDom', () => {
     expect(result).toMatch(/No test results found/)
   })
 
+  it('rejects symlink on last-run.json that resolves outside project root (F4)', async () => {
+    mockRealpath.mockResolvedValueOnce('/etc/evil/last-run.json' as never)
+
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
+    expect(result).toMatch(/symlink outside the project directory/)
+  })
+
   it('rejects path traversal in domSnapshotPath', async () => {
     const traversalPath = '../../../etc/passwd'
     mockRealpath.mockResolvedValueOnce(RUN_FILE as never)

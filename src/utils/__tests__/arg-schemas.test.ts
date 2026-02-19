@@ -24,19 +24,40 @@ describe('ListSpecsArgs — M5 glob pattern traversal prevention', () => {
   })
 })
 
-describe('ReadSpecArgs — required path validation', () => {
+describe('ReadSpecArgs — path validation with traversal prevention', () => {
   it('rejects empty path', () => {
     expect(() => ReadSpecArgs.parse({ path: '' })).toThrow()
   })
 
-  it('accepts a non-empty path (traversal enforcement is in readSpec, not the schema)', () => {
+  it('rejects paths containing .. (directory traversal)', () => {
+    expect(() => ReadSpecArgs.parse({ path: '../secrets/key.ts' })).toThrow('must not contain ..')
+  })
+
+  it('rejects absolute paths', () => {
+    expect(() => ReadSpecArgs.parse({ path: '/etc/passwd' })).toThrow('relative path')
+  })
+
+  it('accepts a valid relative path', () => {
     const result = ReadSpecArgs.parse({ path: 'cypress/e2e/login.cy.ts' })
     expect(result.path).toBe('cypress/e2e/login.cy.ts')
   })
 })
 
-describe('RunSpecArgs — required spec validation', () => {
+describe('RunSpecArgs — spec validation with traversal prevention', () => {
   it('rejects empty spec', () => {
     expect(() => RunSpecArgs.parse({ spec: '' })).toThrow()
+  })
+
+  it('rejects specs containing .. (directory traversal)', () => {
+    expect(() => RunSpecArgs.parse({ spec: '../../etc/passwd' })).toThrow('must not contain ..')
+  })
+
+  it('rejects absolute spec paths', () => {
+    expect(() => RunSpecArgs.parse({ spec: '/tmp/malicious.cy.ts' })).toThrow('relative path')
+  })
+
+  it('accepts a valid relative spec', () => {
+    const result = RunSpecArgs.parse({ spec: 'cypress/e2e/login.cy.ts' })
+    expect(result.spec).toBe('cypress/e2e/login.cy.ts')
   })
 })

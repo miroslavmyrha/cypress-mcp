@@ -45,4 +45,11 @@ describe('listSpecs', () => {
     expect(ignoreArg).toContain('dist/**')
     expect(ignoreArg).toContain('.git/**')
   })
+
+  it('does not follow symlinks (prevents enumeration outside project via symlinked dirs)', async () => {
+    mockGlob.mockResolvedValue([] as never)
+    await listSpecs(PROJECT_ROOT)
+    const options = mockGlob.mock.calls[0][1] as { follow: boolean }
+    expect(options.follow).toBe(false)
+  })
 })

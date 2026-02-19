@@ -25,6 +25,7 @@ const DOM_SNAPSHOT_MAX_BYTES = 100_000
 const MAX_CONSOLE_ERRORS = 20
 const MAX_NETWORK_ERRORS = 20
 const MAX_ERROR_MESSAGE_LENGTH = 500
+const MAX_COMMAND_LOG = 500
 const MAX_URL_LENGTH = 2_000 // L5: cap network error URLs
 
 const commandLog: CommandEntry[] = []
@@ -33,8 +34,11 @@ let networkErrors: NetworkError[] = []
 
 
 Cypress.on('log:added', (log: { name: string; message?: string }) => {
-  if (!SKIP_COMMANDS.has(log.name)) {
-    commandLog.push({ name: log.name, message: log.message ?? '' })
+  if (!SKIP_COMMANDS.has(log.name) && commandLog.length < MAX_COMMAND_LOG) {
+    commandLog.push({
+      name: log.name,
+      message: (log.message ?? '').slice(0, MAX_ERROR_MESSAGE_LENGTH),
+    })
   }
 })
 

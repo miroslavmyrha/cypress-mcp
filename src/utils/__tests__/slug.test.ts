@@ -28,10 +28,16 @@ describe('specSlug — POSIX-safe filesystem output', () => {
   it('produces a bounded slug for arbitrarily long input (DoS prevention)', () => {
     const longPath = 'a/'.repeat(500) + 'spec.cy.ts'
     const result = specSlug(longPath)
-    // No explicit cap in the function, but the output is bounded by input length reduction
-    // Key property: does not throw and returns a non-empty string
     expect(result.length).toBeGreaterThan(0)
+    expect(result.length).toBeLessThanOrEqual(200)
     expect(result).not.toContain('/')
+  })
+
+  it('caps output length at 200 characters', () => {
+    // Input that produces a slug longer than 200 chars before the cap
+    const longInput = 'abcdefghij/'.repeat(50) + 'spec.cy.ts'
+    const result = specSlug(longInput)
+    expect(result.length).toBeLessThanOrEqual(200)
   })
 
   it('produces deterministic output (same input always gives same directory name)', () => {

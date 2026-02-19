@@ -21,14 +21,30 @@ export async function runSpec(projectRoot: string, specPath: string): Promise<st
     throw new Error('Another spec run is already in progress. Wait for it to complete first.')
   }
   activeRuns++
+  // F16: activeRuns is now decremented inside _runSpec's close/error handlers,
+  // NOT here in a finally block. This prevents the counter from being decremented
+  // before the child process actually exits (e.g., during timeout kill).
+  // Pre-spawn validation errors still need to decrement here.
   try {
     return await _runSpec(projectRoot, specPath)
-  } finally {
+  } catch (err) {
+    // If the error came from _runSpec's pre-spawn validation (before the child
+    // process was created), we need to decrement here. If it came from inside
+    // the promise (close/error/timeout handlers), _runSpec already decremented.
+    // We use a marker property to distinguish.
+    if (err instanceof Error && '_childExited' in err) {
+      // Already decremented by close/error handler
+      throw err
+    }
     activeRuns--
+    throw err
   }
 }
 
 async function _runSpec(projectRoot: string, specPath: string): Promise<string> {
+  // F5: normalize projectRoot to remove trailing slashes and .. segments before path comparison
+  projectRoot = path.resolve(projectRoot)
+
   // Layer 1: reject absolute paths
   if (path.isAbsolute(specPath)) {
     throw new Error('spec must be a relative path (e.g. "cypress/e2e/login.cy.ts")')
@@ -90,7 +106,13 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
       if (stdout.length + stderr.length < MAX_OUTPUT_BUFFER) stderr += chunk.toString()
     })
 
+    // F16: track whether the timeout fired — the close handler uses this to decide
+    // whether to resolve or reject. The timeout handler only kills the child;
+    // activeRuns is decremented in close/error where the child has actually exited.
+    let timedOut = false
+
     const timer = setTimeout(() => {
+      timedOut = true
       child.kill('SIGTERM')
       // M2: SIGKILL fallback — Cypress/Electron may ignore SIGTERM
       setTimeout(() => {
@@ -100,21 +122,36 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
           // already dead — ignore
         }
       }, SIGKILL_GRACE_MS)
-      reject(new Error(`run_spec timed out after ${RUN_SPEC_TIMEOUT_MS / 1_000}s`))
+      // F16: do NOT reject or decrement activeRuns here — wait for the 'close' event
     }, RUN_SPEC_TIMEOUT_MS)
 
     child.on('error', (err) => {
       clearTimeout(timer)
+      // F16: child process failed to start or errored — safe to decrement now
+      activeRuns--
       // L2: strip internal paths from error messages
       const message =
         (err as NodeJS.ErrnoException).code === 'ENOENT'
           ? 'Cypress binary not found. Run `npm install cypress` in the project.'
           : 'Failed to start Cypress process.'
-      reject(new Error(message))
+      const markedErr = Object.assign(new Error(message), { _childExited: true })
+      reject(markedErr)
     })
 
     child.on('close', (code) => {
       clearTimeout(timer)
+      // F16: child process has actually exited — safe to decrement now
+      activeRuns--
+
+      if (timedOut) {
+        const markedErr = Object.assign(
+          new Error(`run_spec timed out after ${RUN_SPEC_TIMEOUT_MS / 1_000}s`),
+          { _childExited: true },
+        )
+        reject(markedErr)
+        return
+      }
+
       const durationMs = Date.now() - startMs
       const success = code === 0
       const result = {

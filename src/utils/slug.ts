@@ -15,6 +15,7 @@ export function specSlug(relative: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .toLowerCase()
+    .slice(0, 200)
 }
 
 /**

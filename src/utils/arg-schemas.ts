@@ -11,7 +11,11 @@ export const ListSpecsArgs = z.object({
 })
 
 export const ReadSpecArgs = z.object({
-  path: z.string().min(1, 'path is required'),
+  path: z
+    .string()
+    .min(1, 'path is required')
+    .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
+    .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' }),
 })
 
 export const GetLastRunArgs = z.object({
@@ -29,5 +33,9 @@ export const QueryDomArgs = z.object({
 })
 
 export const RunSpecArgs = z.object({
-  spec: z.string().min(1, 'spec is required'),
+  spec: z
+    .string()
+    .min(1, 'spec is required')
+    .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
+    .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' }),
 })

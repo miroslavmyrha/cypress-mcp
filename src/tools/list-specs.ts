@@ -11,6 +11,7 @@ export async function listSpecs(projectRoot: string, pattern?: string): Promise<
     cwd: projectRoot,
     ignore: IGNORE_PATTERNS,
     nodir: true,
+    follow: false,
   })
 
   return matches.sort().map((p) => path.normalize(p))

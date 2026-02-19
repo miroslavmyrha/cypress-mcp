@@ -84,6 +84,11 @@ export async function queryDom(
     throw err
   }
 
+  // F4: re-validate that realpath of last-run.json stays within project root
+  if (!realRunFile.startsWith(projectRoot + path.sep)) {
+    return 'Error: last-run.json is a symlink outside the project directory'
+  }
+
   // H3: validate structure at runtime
   let data: z.infer<typeof RunDataSchema>
   try {

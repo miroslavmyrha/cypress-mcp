@@ -2,21 +2,55 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('node:fs/promises')
 
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
+import path from 'node:path'
 import { readSpec } from '../read-spec.js'
 
 const mockReadFile = vi.mocked(readFile)
+const mockRealpath = vi.mocked(realpath)
 
 const PROJECT_ROOT = '/fake/project'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // By default, realpath returns the resolved path unchanged (no symlinks)
+  mockRealpath.mockImplementation(async (p) => p.toString())
 })
 
 describe('readSpec', () => {
   it('throws on path traversal outside project root', async () => {
     await expect(readSpec(PROJECT_ROOT, '../../../etc/passwd')).rejects.toThrow(
       'Path traversal detected',
+    )
+  })
+
+  it('throws when symlink resolves outside project root', async () => {
+    const symlinkPath = path.resolve(PROJECT_ROOT, 'cypress/e2e/evil-link.cy.ts')
+    mockRealpath.mockResolvedValue('/etc/passwd' as never)
+
+    await expect(readSpec(PROJECT_ROOT, 'cypress/e2e/evil-link.cy.ts')).rejects.toThrow(
+      'Path traversal detected',
+    )
+    expect(mockRealpath).toHaveBeenCalledWith(symlinkPath)
+  })
+
+  it('throws when file extension is not an allowed spec extension', async () => {
+    mockRealpath.mockResolvedValue(
+      path.resolve(PROJECT_ROOT, 'cypress/e2e/.env') as never,
+    )
+
+    await expect(readSpec(PROJECT_ROOT, 'cypress/e2e/.env')).rejects.toThrow(
+      'File extension not allowed',
+    )
+  })
+
+  it('throws for non-spec TypeScript files', async () => {
+    mockRealpath.mockResolvedValue(
+      path.resolve(PROJECT_ROOT, 'cypress/support/helpers.ts') as never,
+    )
+
+    await expect(readSpec(PROJECT_ROOT, 'cypress/support/helpers.ts')).rejects.toThrow(
+      'File extension not allowed',
     )
   })
 
@@ -53,5 +87,16 @@ describe('readSpec', () => {
     const result = await readSpec(PROJECT_ROOT, 'cypress/e2e/big.cy.ts')
     expect(result).toMatch(/truncated at 500000 bytes/)
     expect(result.length).toBeLessThan(bigContent.length)
+  })
+
+  it.each([
+    'login.cy.ts', 'login.cy.js', 'login.cy.tsx', 'login.cy.jsx',
+    'login.spec.ts', 'login.spec.js', 'login.spec.tsx', 'login.spec.jsx',
+  ])('allows reading %s extension', async (filename) => {
+    const content = 'test content'
+    mockReadFile.mockResolvedValue(content as never)
+
+    const result = await readSpec(PROJECT_ROOT, `cypress/e2e/${filename}`)
+    expect(result).toBe(content)
   })
 })

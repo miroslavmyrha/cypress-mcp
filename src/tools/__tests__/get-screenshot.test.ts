@@ -2,15 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('node:fs/promises')
 
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { getScreenshot } from '../get-screenshot.js'
 
 const mockStat = vi.mocked(stat)
+const mockRealpath = vi.mocked(realpath)
 
 const PROJECT_ROOT = '/fake/project'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // By default, realpath returns the resolved path unchanged (no symlinks)
+  mockRealpath.mockImplementation(async (p) => p.toString())
 })
 
 describe('getScreenshot', () => {
@@ -18,6 +21,26 @@ describe('getScreenshot', () => {
     await expect(getScreenshot(PROJECT_ROOT, '/etc/shadow')).rejects.toThrow(
       'Screenshot path must be within the project root',
     )
+  })
+
+  it('throws when symlink resolves outside project root', async () => {
+    mockRealpath.mockResolvedValue('/etc/shadow' as never)
+
+    await expect(
+      getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/cypress/screenshots/evil-link.png`),
+    ).rejects.toThrow('Screenshot path must be within the project root')
+  })
+
+  it('throws when file extension is not an allowed image type', async () => {
+    await expect(
+      getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/cypress/screenshots/data.json`),
+    ).rejects.toThrow('File extension not allowed')
+  })
+
+  it('throws for non-image file disguised in screenshots directory', async () => {
+    await expect(
+      getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/cypress/screenshots/.env`),
+    ).rejects.toThrow('File extension not allowed')
   })
 
   it('returns exists:true with file size when file is found', async () => {
@@ -32,8 +55,10 @@ describe('getScreenshot', () => {
   })
 
   it('returns exists:false with null size when file does not exist (ENOENT)', async () => {
-    const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
-    mockStat.mockRejectedValue(err as never)
+    const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    // realpath throws ENOENT for non-existent files — this is expected
+    mockRealpath.mockRejectedValue(enoentErr as never)
+    mockStat.mockRejectedValue(enoentErr as never)
 
     const result = await getScreenshot(
       PROJECT_ROOT,
@@ -57,5 +82,15 @@ describe('getScreenshot', () => {
     await expect(
       getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/../outside/secret.png`),
     ).rejects.toThrow('Screenshot path must be within the project root')
+  })
+
+  it.each(['.png', '.jpg', '.jpeg'])('allows %s extension', async (ext) => {
+    mockStat.mockResolvedValue({ size: 1000 } as never)
+
+    const result = await getScreenshot(
+      PROJECT_ROOT,
+      `${PROJECT_ROOT}/cypress/screenshots/image${ext}`,
+    )
+    expect(result.exists).toBe(true)
   })
 })

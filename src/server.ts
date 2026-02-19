@@ -257,7 +257,19 @@ export function startServer(options: ServerOptions): void {
 
     // MCP Streamable HTTP protocol:
     //   POST /mcp  → tool call (requires Authorization: Bearer <token>)
+    // Security headers applied to every HTTP response
+    const SECURITY_HEADERS: Record<string, string> = {
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Cache-Control': 'no-store',
+    }
+
     const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+      // Apply security headers to every response before any branching
+      for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
+        res.setHeader(header, value)
+      }
+
       if (req.url !== '/mcp') {
         res.writeHead(404, { 'Content-Type': 'text/plain' })
         res.end('Not found. Use POST /mcp for tool calls.\n')
@@ -284,10 +296,12 @@ export function startServer(options: ServerOptions): void {
       }
 
       mcpTransport.handleRequest(req, res).catch((err) => {
+        // Log the real error for debugging, but never expose internals to the client
         const message = err instanceof Error ? err.message : String(err)
+        auditLog('http_internal_error', { error: message.slice(0, 200) })
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: message }))
+          res.end(JSON.stringify({ error: 'Internal server error' }))
         }
       })
     })

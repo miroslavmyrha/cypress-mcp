@@ -174,6 +174,28 @@ describe('runSpec', () => {
     expect(data.output!.length).toBeLessThanOrEqual(2_000)
   })
 
+  it('normalizes projectRoot with trailing slash so startsWith check is not bypassed (F5)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess()
+    mockSpawn.mockReturnValue(proc as never)
+
+    // A trailing-slash projectRoot like "/fake/project/" should still work correctly
+    const result = await runSpec('/fake/project/', 'cypress/e2e/login.cy.ts')
+    const data = JSON.parse(result)
+    expect(data.success).toBe(true)
+  })
+
+  it('normalizes projectRoot with .. segments so traversal check is not bypassed (F5)', async () => {
+    // With un-normalized projectRoot, a .. segment could bypass startsWith
+    // e.g., projectRoot="/fake/project/../project" + specPath="../../etc/passwd.cy.ts"
+    // Without normalization: resolved="/fake/etc/passwd.cy.ts",
+    //   startsWith("/fake/project/../project/") would be false but for wrong reasons
+    // With normalization both resolve to /fake/project
+    await expect(
+      runSpec('/fake/project/../project', '../../etc/passwd.cy.ts'),
+    ).rejects.toThrow('within the project root')
+  })
+
   it('accepts .spec.ts extension', async () => {
     setupNormalFile()
     const proc = createMockProcess()
