@@ -9,7 +9,7 @@ import { readSpec } from './tools/read-spec.js'
 import { getLastRun } from './tools/get-last-run.js'
 import { getScreenshot } from './tools/get-screenshot.js'
 import { queryDom } from './tools/query-dom.js'
-import { runSpec } from './tools/run-spec.js'
+import { killAllActiveRuns, runSpec } from './tools/run-spec.js'
 import { wrapUntrusted } from './utils/wrap-untrusted.js'
 import {
   ListSpecsArgs,
@@ -168,20 +168,20 @@ export function startServer(options: ServerOptions): void {
     const { name, arguments: args } = request.params
 
     // MCP08: audit every tool invocation for forensic trail
-    auditLog('tool_called', { tool: name })
+    auditLog('tool_called', { tool: name, args: JSON.stringify(args ?? {}).slice(0, 500) })
 
     try {
       switch (name) {
         case 'list_specs': {
           const { pattern } = ListSpecsArgs.parse(args ?? {})
           const specs = await listSpecs(projectRoot, pattern)
-          return { content: [{ type: 'text' as const, text: JSON.stringify(specs, null, 2) }] }
+          return { content: [{ type: 'text' as const, text: wrapUntrusted(JSON.stringify(specs, null, 2)) }] }
         }
 
         case 'read_spec': {
           const { path } = ReadSpecArgs.parse(args)
           const content = await readSpec(projectRoot, path)
-          return { content: [{ type: 'text' as const, text: content }] }
+          return { content: [{ type: 'text' as const, text: wrapUntrusted(content) }] }
         }
 
         case 'get_last_run': {
@@ -195,7 +195,7 @@ export function startServer(options: ServerOptions): void {
           const { path } = GetScreenshotArgs.parse(args)
           // H5: pass projectRoot so getScreenshot can enforce the path boundary
           const info = await getScreenshot(projectRoot, path)
-          return { content: [{ type: 'text' as const, text: JSON.stringify(info, null, 2) }] }
+          return { content: [{ type: 'text' as const, text: wrapUntrusted(JSON.stringify(info, null, 2)) }] }
         }
 
         case 'query_dom': {
@@ -223,7 +223,9 @@ export function startServer(options: ServerOptions): void {
       const message = err instanceof Error ? err.message : String(err)
       // MCP08: log errors — helps detect path traversal attempts, auth issues, and misuse
       auditLog('tool_error', { tool: name, error: message.slice(0, 200) })
-      return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true }
+      // L2: strip absolute paths from error messages to avoid leaking internal filesystem structure
+      const sanitized = message.replace(/\/[^\s:]+/g, '[path]')
+      return { content: [{ type: 'text' as const, text: `Error: ${sanitized}` }], isError: true }
     }
   })
 
@@ -242,18 +244,8 @@ export function startServer(options: ServerOptions): void {
     // Printed to stderr at startup — configure your MCP client with this token.
     const httpToken = randomBytes(32).toString('hex')
 
-    // Fix: create transport once and reuse across requests — per-request connect() accumulates
-    // transport references in the MCP Server without cleanup, causing a connection leak.
-    // StreamableHTTPServerTransport in stateless mode (no sessionIdGenerator) is designed
-    // to handle multiple independent requests on the same transport instance.
-    const mcpTransport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    })
-    server.connect(mcpTransport).catch((err) => {
-      process.stderr.write(
-        `Server connect error: ${err instanceof Error ? err.message : String(err)}\n`,
-      )
-    })
+    // H9: reject oversized request bodies to prevent OOM
+    const MAX_REQUEST_BODY_BYTES = 1_048_576 // 1 MB
 
     // MCP Streamable HTTP protocol:
     //   POST /mcp  → tool call (requires Authorization: Bearer <token>)
@@ -264,10 +256,25 @@ export function startServer(options: ServerOptions): void {
       'Cache-Control': 'no-store',
     }
 
-    const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       // Apply security headers to every response before any branching
       for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
         res.setHeader(header, value)
+      }
+
+      // H9: reject oversized requests based on Content-Length header
+      const contentLength = parseInt(req.headers['content-length'] ?? '0', 10)
+      if (contentLength > MAX_REQUEST_BODY_BYTES) {
+        res.writeHead(413, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Request body too large' }))
+        return
+      }
+
+      // H10: reject cross-origin requests to prevent DNS rebinding attacks
+      if (req.headers['origin']) {
+        res.writeHead(403, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Cross-origin requests not allowed' }))
+        return
       }
 
       if (req.url !== '/mcp') {
@@ -295,7 +302,11 @@ export function startServer(options: ServerOptions): void {
         return
       }
 
-      mcpTransport.handleRequest(req, res).catch((err) => {
+      // H1: create a fresh transport per request — SDK 1.26.0 stateless mode throws
+      // "Stateless transport cannot be reused" if handleRequest() is called twice on the same instance.
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+      await server.connect(transport)
+      await transport.handleRequest(req, res).catch((err) => {
         // Log the real error for debugging, but never expose internals to the client
         const message = err instanceof Error ? err.message : String(err)
         auditLog('http_internal_error', { error: message.slice(0, 200) })
@@ -313,5 +324,14 @@ export function startServer(options: ServerOptions): void {
       process.stderr.write(`  POST http://127.0.0.1:${port}/mcp  → tool calls\n`)
       process.stderr.write(`  Project root: ${projectRoot}\n`)
     })
+
+    // H11: graceful shutdown — kill active Cypress runs and close HTTP server
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      process.on(signal, () => {
+        killAllActiveRuns()
+        httpServer.close()
+        process.exit(0)
+      })
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { cypressMcpPlugin } from '../index.js'
+import { cypressMcpPlugin, redactSecrets } from '../index.js'
 
 // H1: mcpSaveTestLog accepts arbitrary payloads from cy.task() callers — TypeScript types
 // provide zero runtime protection across Cypress IPC. Only Zod schema enforcement prevents
@@ -34,6 +34,35 @@ beforeEach(() => {
 
 afterEach(() => {
   stderrSpy.mockRestore()
+})
+
+describe('redactSecrets — H22 displayError secret redaction', () => {
+  it('redacts JWT tokens from assertion failure messages', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjF9.abc123def456'
+    const input = `expected "Bearer ${jwt}" to equal "Bearer xxx"`
+    const result = redactSecrets(input)
+    expect(result).toContain('[jwt-redacted]')
+    expect(result).not.toContain(jwt)
+  })
+
+  it('redacts password values from assertion failures', () => {
+    const input = 'expected { password: "s3cretP@ss!" } to deeply equal {}'
+    const result = redactSecrets(input)
+    expect(result).toContain('password=[redacted]')
+    expect(result).not.toContain('s3cretP@ss!')
+  })
+
+  it('redacts token and secret key-value patterns', () => {
+    const input = 'AssertionError: token=sk_live_abc123xyz auth: "Bearer mytoken123"'
+    const result = redactSecrets(input)
+    expect(result).toContain('token=[redacted]')
+    expect(result).toContain('auth=[redacted]')
+  })
+
+  it('passes through normal error text unchanged', () => {
+    const input = 'AssertionError: expected 42 to equal 43'
+    expect(redactSecrets(input)).toBe(input)
+  })
 })
 
 describe('mcpSaveTestLog — H1 Zod payload validation', () => {

@@ -1,6 +1,6 @@
 import { lstat } from 'node:fs/promises'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 
 const SPEC_PATTERN = /\.(cy|spec)\.(ts|js|tsx|jsx|mjs|cjs)$/
 const RUN_SPEC_TIMEOUT_MS = 5 * 60 * 1_000
@@ -14,6 +14,32 @@ const CYPRESS_BIN = path.join('node_modules', '.bin', 'cypress')
 // M3: global concurrency limit — each Cypress run spawns a browser process (~300–800 MB RAM)
 let activeRuns = 0
 const MAX_CONCURRENT_RUNS = 1
+
+// F11: track active child processes so they can be killed on graceful shutdown
+const activeProcesses = new Set<ChildProcess>()
+
+/**
+ * Kill all running Cypress child processes. Called during graceful server shutdown
+ * to prevent orphaned browser processes.
+ */
+export function killAllActiveRuns(): void {
+  for (const proc of activeProcesses) {
+    proc.kill('SIGTERM')
+  }
+  activeProcesses.clear()
+}
+
+// F14: redact sensitive data from Cypress stdout/stderr before returning to caller
+const JWT_RE = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g
+const SECRET_RE = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
+const CONNECTION_STRING_RE = /(?:postgres|mysql|mongo|redis)(?:ql)?:\/\/[^\s]+/gi
+
+function redactOutput(text: string): string {
+  return text
+    .replace(JWT_RE, '[jwt-redacted]')
+    .replace(SECRET_RE, '$1=[redacted]')
+    .replace(CONNECTION_STRING_RE, '[connection-string-redacted]')
+}
 
 export async function runSpec(projectRoot: string, specPath: string): Promise<string> {
   // M3: reject concurrent runs to prevent resource exhaustion
@@ -96,6 +122,9 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
       },
     })
 
+    // F11: track child for graceful shutdown cleanup
+    activeProcesses.add(child)
+
     let stdout = ''
     let stderr = ''
 
@@ -127,6 +156,8 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
 
     child.on('error', (err) => {
       clearTimeout(timer)
+      // F11: remove from active set on exit
+      activeProcesses.delete(child)
       // F16: child process failed to start or errored — safe to decrement now
       activeRuns--
       // L2: strip internal paths from error messages
@@ -140,6 +171,8 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
 
     child.on('close', (code) => {
       clearTimeout(timer)
+      // F11: remove from active set on exit
+      activeProcesses.delete(child)
       // F16: child process has actually exited — safe to decrement now
       activeRuns--
 
@@ -158,8 +191,8 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
         success,
         exitCode: code ?? -1,
         durationMs,
-        // Surface first 2KB of output for quick diagnosis; full results via get_last_run
-        output: (stdout + stderr).slice(0, 2_000) || null,
+        // F14: redact secrets then surface first 2KB of output for quick diagnosis; full results via get_last_run
+        output: redactOutput((stdout + stderr).slice(0, 2_000)) || null,
         message: 'Run complete. Call get_last_run to see full results.',
       }
       resolve(JSON.stringify(result, null, 2))

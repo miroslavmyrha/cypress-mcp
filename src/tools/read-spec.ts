@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 const MAX_FILE_SIZE_BYTES = 500_000 // 500 KB — prevent huge files from filling context
@@ -29,9 +29,15 @@ export async function readSpec(projectRoot: string, specPath: string): Promise<s
     throw new Error(`File extension not allowed. Only Cypress spec files are permitted: ${ALLOWED_SPEC_EXTENSIONS.join(', ')}`)
   }
 
+  // Pre-read size check: prevent OOM from huge files before loading into memory
+  const fileStat = await stat(real)
+  if (fileStat.size > MAX_FILE_SIZE_BYTES) {
+    return `/* File too large (${fileStat.size} bytes). Maximum: ${MAX_FILE_SIZE_BYTES} bytes. */`
+  }
+
   let content: string
   try {
-    content = await readFile(resolved, 'utf-8')
+    content = await readFile(real, 'utf-8')
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT') throw new Error(`Spec file not found: ${specPath}`)

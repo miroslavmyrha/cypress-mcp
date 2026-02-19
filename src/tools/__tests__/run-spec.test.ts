@@ -6,7 +6,7 @@ vi.mock('node:child_process')
 
 import { lstat } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
-import { runSpec } from '../run-spec.js'
+import { runSpec, killAllActiveRuns } from '../run-spec.js'
 
 const mockLstat = vi.mocked(lstat)
 const mockSpawn = vi.mocked(spawn)
@@ -204,5 +204,79 @@ describe('runSpec', () => {
     const result = await runSpec(PROJECT_ROOT, 'src/login.spec.ts')
     const data = JSON.parse(result)
     expect(data.success).toBe(true)
+  })
+
+  it('redacts JWTs in stdout output (F14)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123signature'
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    setImmediate(() => {
+      proc.stdout.emit('data', Buffer.from(`Received: ${jwt}\n`))
+      proc.emit('close', 0)
+    })
+
+    const result = await runPromise
+    const data = JSON.parse(result)
+    expect(data.output).not.toContain('eyJ')
+    expect(data.output).toContain('[jwt-redacted]')
+  })
+
+  it('redacts secret key-value pairs in stdout output (F14)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    setImmediate(() => {
+      proc.stdout.emit('data', Buffer.from('password=SuperSecret123\ntoken: abc-xyz-secret\n'))
+      proc.emit('close', 0)
+    })
+
+    const result = await runPromise
+    const data = JSON.parse(result)
+    expect(data.output).not.toContain('SuperSecret123')
+    expect(data.output).toContain('password=[redacted]')
+  })
+
+  it('redacts connection strings in stdout output (F14)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    setImmediate(() => {
+      proc.stdout.emit('data', Buffer.from('DB: postgresql://user:pass@localhost:5432/db\n'))
+      proc.emit('close', 0)
+    })
+
+    const result = await runPromise
+    const data = JSON.parse(result)
+    expect(data.output).not.toContain('postgresql://')
+    expect(data.output).toContain('[connection-string-redacted]')
+  })
+
+  it('killAllActiveRuns sends SIGTERM to all active child processes (F11)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    // Start a run but don't await — process stays active
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+
+    // Wait a tick so _runSpec passes the await lstat() and reaches spawn()
+    await new Promise((r) => setImmediate(r))
+
+    // killAllActiveRuns should SIGTERM the active process
+    killAllActiveRuns()
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM')
+
+    // Cleanup: close the process so the promise resolves and activeRuns resets
+    proc.emit('close', 0)
+    await runPromise.catch(() => {
+      // may reject — that's fine
+    })
   })
 })

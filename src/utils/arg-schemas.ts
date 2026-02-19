@@ -23,7 +23,11 @@ export const GetLastRunArgs = z.object({
 })
 
 export const GetScreenshotArgs = z.object({
-  path: z.string().min(1, 'path is required'),
+  path: z
+    .string()
+    .min(1, 'path is required')
+    .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
+    .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' }),
 })
 
 export const QueryDomArgs = z.object({

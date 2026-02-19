@@ -72,9 +72,35 @@ describe('queryDom', () => {
     expect(result).toMatch(/symlink outside the project directory/)
   })
 
+  it('rejects last-run.json exceeding 50 MB size limit (F7)', async () => {
+    mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    mockStat.mockResolvedValueOnce({ size: 51 * 1024 * 1024 } as never) // 51 MB
+
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
+    expect(result).toMatch(/last-run.json exceeds size limit/)
+    // readFile should NOT be called
+    expect(mockReadFile).not.toHaveBeenCalled()
+  })
+
+  it('normalizes projectRoot with trailing slash for containment check (F6)', async () => {
+    // Use a projectRoot with trailing slash — path.resolve() strips it
+    const trailingSlashRoot = '/fake/project/'
+    const runFile = path.join('/fake/project', '.cypress-mcp/last-run.json')
+    mockRealpath.mockResolvedValueOnce(runFile as never)
+    mockStat.mockResolvedValueOnce({ size: 100 } as never)
+    mockReadFile.mockResolvedValueOnce(
+      JSON.stringify({ specs: [{ spec: SPEC, tests: [{ title: TEST_TITLE, domSnapshotPath: null }] }] }) as never,
+    )
+
+    // Should NOT return symlink error — the normalized root matches
+    const result = await queryDom(trailingSlashRoot, SPEC, TEST_TITLE, 'button')
+    expect(result).not.toMatch(/symlink outside/)
+  })
+
   it('rejects path traversal in domSnapshotPath', async () => {
     const traversalPath = '../../../etc/passwd'
     mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(makeRunData(traversalPath) as never)
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
@@ -105,6 +131,7 @@ describe('queryDom', () => {
 
   it('returns message when spec is not found in run data', async () => {
     mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
       JSON.stringify({ specs: [{ spec: 'other.cy.ts', tests: [] }] }) as never,
     )
@@ -115,6 +142,7 @@ describe('queryDom', () => {
 
   it('returns message when test title is not found in spec', async () => {
     mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
       JSON.stringify({
         specs: [{ spec: SPEC, tests: [{ title: 'other test', domSnapshotPath: null }] }],
@@ -127,6 +155,7 @@ describe('queryDom', () => {
 
   it('returns message when test has no DOM snapshot', async () => {
     mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(makeRunData(null) as never)
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')

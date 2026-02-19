@@ -28,6 +28,42 @@ const MAX_ERROR_MESSAGE_LENGTH = 500
 const MAX_COMMAND_LOG = 500
 const MAX_URL_LENGTH = 2_000 // L5: cap network error URLs
 
+// Finding #16: Redact sensitive commands at capture time, not just read time
+const REDACT_IN_LOG = new Set(['type', 'clear', 'request', 'setCookie', 'session', 'invoke', 'its'])
+
+// Finding #4: Sanitize DOM snapshots to remove passwords, tokens, CSRF, and script contents
+function sanitizeDom(html: string): string {
+  return html
+    // Redact password input values
+    .replace(/(<input[^>]*type\s*=\s*["']password["'][^>]*)\bvalue\s*=\s*["'][^"']*["']/gi, '$1value="[redacted]"')
+    // Redact hidden input values (CSRF tokens, etc.)
+    .replace(/(<input[^>]*type\s*=\s*["']hidden["'][^>]*)\bvalue\s*=\s*["'][^"']*["']/gi, '$1value="[redacted]"')
+    // Redact script tag contents
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script>[redacted]</script>')
+    // Redact data attributes that look like tokens/secrets
+    .replace(/\b(data-(?:token|secret|key|auth|api-key|csrf))\s*=\s*["'][^"']*["']/gi, '$1="[redacted]"')
+}
+
+// Finding #12: Sanitize URLs that contain sensitive query parameters
+const SENSITIVE_URL_PARAMS = /[?&](token|access_token|api_key|key|secret|password|auth|authorization|code|session)[=][^&]*/gi
+
+function sanitizeUrl(url: string): string {
+  return url.replace(SENSITIVE_URL_PARAMS, (match, param) => {
+    const separator = match.startsWith('?') ? '?' : '&'
+    return `${separator}${param}=[redacted]`
+  })
+}
+
+// Finding #13: Redact JWTs, connection strings, and other secrets from log messages
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g
+const SECRET_PATTERN = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
+
+function redactSecrets(msg: string): string {
+  return msg
+    .replace(JWT_PATTERN, '[jwt-redacted]')
+    .replace(SECRET_PATTERN, '$1=[redacted]')
+}
+
 const commandLog: CommandEntry[] = []
 let consoleErrors: string[] = []
 let networkErrors: NetworkError[] = []
@@ -37,7 +73,9 @@ Cypress.on('log:added', (log: { name: string; message?: string }) => {
   if (!SKIP_COMMANDS.has(log.name) && commandLog.length < MAX_COMMAND_LOG) {
     commandLog.push({
       name: log.name,
-      message: (log.message ?? '').slice(0, MAX_ERROR_MESSAGE_LENGTH),
+      message: REDACT_IN_LOG.has(log.name)
+        ? '[redacted]'
+        : (log.message ?? '').slice(0, MAX_ERROR_MESSAGE_LENGTH),
     })
   }
 })
@@ -48,10 +86,12 @@ Cypress.on('window:before:load', (win) => {
     origError(...args)
     if (consoleErrors.length < MAX_CONSOLE_ERRORS) {
       // M7: truncate each arg individually to bound peak memory before joining
-      const msg = args
-        .map((a) => (typeof a === 'string' ? a : safeStringify(a)).slice(0, MAX_ERROR_MESSAGE_LENGTH))
-        .join(' ')
-        .slice(0, MAX_ERROR_MESSAGE_LENGTH)
+      const msg = redactSecrets(
+        args
+          .map((a) => (typeof a === 'string' ? a : safeStringify(a)).slice(0, MAX_ERROR_MESSAGE_LENGTH))
+          .join(' ')
+          .slice(0, MAX_ERROR_MESSAGE_LENGTH)
+      )
       consoleErrors.push(msg)
     }
   }
@@ -63,7 +103,7 @@ Cypress.on('window:before:load', (win) => {
   ;(win as unknown as WindowLike).addEventListener('unhandledrejection', (event) => {
     if (consoleErrors.length < MAX_CONSOLE_ERRORS) {
       const reason = event.reason instanceof Error ? event.reason.message : String(event.reason)
-      const msg = `Unhandled rejection: ${reason}`
+      const msg = redactSecrets(`Unhandled rejection: ${reason}`)
       consoleErrors.push(msg.slice(0, MAX_ERROR_MESSAGE_LENGTH))
     }
   })
@@ -79,7 +119,7 @@ beforeEach(() => {
       if (res.statusCode >= 400 && networkErrors.length < MAX_NETWORK_ERRORS) {
         networkErrors.push({
           method: req.method,
-          url: req.url.slice(0, MAX_URL_LENGTH), // L5: prevent unbounded URL storage
+          url: sanitizeUrl(req.url).slice(0, MAX_URL_LENGTH), // L5: prevent unbounded URL storage
           status: res.statusCode,
         })
       }
@@ -98,10 +138,11 @@ afterEach(function () {
   if (failed) {
     cy.document().then((doc) => {
       const raw = doc.body.outerHTML
-      const domSnapshot =
+      const domSnapshot = sanitizeDom(
         raw.length > DOM_SNAPSHOT_MAX_BYTES
           ? `${raw.slice(0, DOM_SNAPSHOT_MAX_BYTES)}<!-- truncated -->`
           : raw
+      )
 
       cy.task(
         'mcpSaveTestLog',

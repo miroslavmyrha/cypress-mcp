@@ -23,10 +23,18 @@ new Command()
       process.exit(1)
     }
 
+    const parsedPort = Number(port)
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+      process.stderr.write(
+        `Error: Invalid port "${port}". Must be an integer between 1 and 65535.\n`,
+      )
+      process.exit(1)
+    }
+
     startServer({
       projectRoot: path.resolve(project),
       transport: transport as 'stdio' | 'http',
-      port: Number(port),
+      port: parsedPort,
     })
   })
   .parse()

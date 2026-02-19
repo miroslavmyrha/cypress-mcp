@@ -11,6 +11,7 @@ const MAX_ELEMENT_LABEL_CHARS = 200 // M6: prevent huge class attribute from blo
 const MAX_BREADCRUMB_CHARS = 500   // M6: cap total breadcrumb output
 const MAX_BREADCRUMB_DEPTH = 50    // M6: limit ancestor traversal depth
 const MAX_SNAPSHOT_FILE_BYTES = 2 * 1_024 * 1_024 // M6: 2 MB HTML cap (prevents O(N²) :nth-child DoS)
+const MAX_LAST_RUN_BYTES = 50 * 1_024 * 1_024 // F7: 50 MB — same cap as get-last-run.ts
 const MAX_SELECTOR_LENGTH = 512    // L4: block excessively long selectors
 
 // H3: runtime schema — only validate fields we access, preserve others with passthrough()
@@ -70,8 +71,10 @@ export async function queryDom(
     return `Error: selector too long (max ${MAX_SELECTOR_LENGTH} characters)`
   }
 
-  const runFile = path.join(projectRoot, LAST_RUN_FILE)
-  const mcpDir = path.join(projectRoot, '.cypress-mcp')
+  // F6: normalize projectRoot to prevent containment-check bypass with trailing slashes or relative segments
+  const normalizedRoot = path.resolve(projectRoot)
+  const runFile = path.join(normalizedRoot, LAST_RUN_FILE)
+  const mcpDir = path.join(normalizedRoot, '.cypress-mcp')
   const snapshotsDir = path.join(mcpDir, SNAPSHOTS_SUBDIR)
 
   // M9: resolve symlinks on last-run.json before reading
@@ -85,8 +88,14 @@ export async function queryDom(
   }
 
   // F4: re-validate that realpath of last-run.json stays within project root
-  if (!realRunFile.startsWith(projectRoot + path.sep)) {
+  if (!realRunFile.startsWith(normalizedRoot + path.sep)) {
     return 'Error: last-run.json is a symlink outside the project directory'
+  }
+
+  // F7: size check before reading — same 50 MB cap as get-last-run.ts
+  const runFileStat = await stat(realRunFile)
+  if (runFileStat.size > MAX_LAST_RUN_BYTES) {
+    return 'Error: last-run.json exceeds size limit'
   }
 
   // H3: validate structure at runtime

@@ -72,24 +72,31 @@ export async function getLastRun(projectRoot: string, failedOnly = false): Promi
 
   const data = schemaResult.data
 
-  // MCP10: redact sensitive command values from passing tests.
-  // cy.type() and cy.clear() log the actual typed values (passwords, PII, tokens).
-  // Failed tests retain full logs for debugging; passing tests don't need typed values.
-  const REDACT_COMMANDS = new Set(['type', 'clear'])
+  // MCP10: redact sensitive command values from ALL tests.
+  // Sensitive commands log actual values (passwords, PII, tokens).
+  // Failed tests get a hint (command name) for debugging; passing tests get generic '[redacted]'.
+  const REDACT_COMMANDS = new Set(['type', 'clear', 'request', 'setCookie', 'session', 'invoke', 'its'])
   type AnyRecord = Record<string, unknown>
   type CommandRecord = { name: string; message: string }
 
-  function redactPassingTestCommands(specs: AnyRecord[]): AnyRecord[] {
+  function redactTestCommands(specs: AnyRecord[]): AnyRecord[] {
     return specs.map((spec) => ({
       ...spec,
       tests: ((spec.tests as AnyRecord[] | undefined) ?? []).map((test) => {
-        if (test.state === 'failed') return test // keep full logs — needed for debugging
         const cmds = (test.commands as CommandRecord[] | undefined) ?? []
         return {
           ...test,
-          commands: cmds.map((cmd) =>
-            REDACT_COMMANDS.has(cmd.name) ? { ...cmd, message: '[redacted]' } : cmd,
-          ),
+          commands: cmds.map((cmd) => {
+            if (REDACT_COMMANDS.has(cmd.name)) {
+              return {
+                ...cmd,
+                message: test.state === 'failed'
+                  ? `[redacted - ${cmd.name}]` // hint for debugging
+                  : '[redacted]',
+              }
+            }
+            return cmd
+          }),
         }
       }),
     }))
@@ -98,7 +105,7 @@ export async function getLastRun(projectRoot: string, failedOnly = false): Promi
   if (failedOnly) {
     const filtered = {
       ...data,
-      specs: redactPassingTestCommands(
+      specs: redactTestCommands(
         (data.specs ?? [])
           .map((spec) => ({
             ...spec,
@@ -111,7 +118,7 @@ export async function getLastRun(projectRoot: string, failedOnly = false): Promi
   }
 
   return JSON.stringify(
-    { ...data, specs: redactPassingTestCommands(data.specs ?? []) },
+    { ...data, specs: redactTestCommands(data.specs ?? []) },
     null,
     2,
   )

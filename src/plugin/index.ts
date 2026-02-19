@@ -73,6 +73,15 @@ export interface McpPluginOptions {
   screenshots?: boolean
 }
 
+// H22: Pattern-based redaction for displayError — assertion failures may contain
+// secrets (JWTs, passwords, tokens) from test assertions comparing expected vs actual values.
+const JWT_RE = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g
+const SECRET_RE = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
+
+export function redactSecrets(text: string): string {
+  return text.replace(JWT_RE, '[jwt-redacted]').replace(SECRET_RE, '$1=[redacted]')
+}
+
 const OUTPUT_DIR_NAME = '.cypress-mcp'
 const SNAPSHOTS_SUBDIR = 'snapshots'
 
@@ -111,7 +120,7 @@ function buildSpecResult(
       title: titlePath,
       state: test.state,
       duration: test.duration ?? 0,
-      error: test.displayError ?? null,
+      error: test.displayError ? redactSecrets(test.displayError) : null,
       domSnapshotPath,
       commands: logEntry?.commands ?? [],
       consoleErrors: logEntry?.consoleErrors ?? [],

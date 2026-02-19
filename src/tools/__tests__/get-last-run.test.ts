@@ -136,7 +136,7 @@ describe('getLastRun', () => {
     expect(clickCmd.message).toBe('Login button')
   })
 
-  it('does NOT redact commands in failed tests', async () => {
+  it('redacts commands in failed tests with command name hint', async () => {
     const data = {
       ...VALID_RUN_DATA,
       specs: [
@@ -157,7 +157,7 @@ describe('getLastRun', () => {
     const result = await getLastRun(PROJECT_ROOT)
     const parsed = JSON.parse(result)
     const typeCmd = parsed.specs[0].tests[0].commands[0]
-    expect(typeCmd.message).toBe('secret-password')
+    expect(typeCmd.message).toBe('[redacted - type]')
   })
 
   it('failedOnly: returns only specs containing failed tests', async () => {
