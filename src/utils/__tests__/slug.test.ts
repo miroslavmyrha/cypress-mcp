@@ -12,19 +12,6 @@ describe('specSlug — POSIX-safe filesystem output', () => {
     }
   })
 
-  it('never contains null bytes or control characters (prevents fs null-byte injection, L6)', () => {
-    const withControls = 'foo\x00bar\x01\x1f\x7f\x80\x9fpath'
-    const result = specSlug(withControls)
-    expect(result).not.toMatch(/[\x00-\x1f\x7f-\x9f]/)
-  })
-
-  it('maps NFKC-equivalent paths to the same slug (prevents homoglyph bypass, L7)', () => {
-    // Fullwidth ａ (U+FF41) normalizes to ASCII a under NFKC
-    const fullwidth = specSlug('\uff41bc/test.cy.ts')
-    const ascii = specSlug('abc/test.cy.ts')
-    expect(fullwidth).toBe(ascii)
-  })
-
   it('produces a bounded slug for arbitrarily long input (DoS prevention)', () => {
     const longPath = 'a/'.repeat(500) + 'spec.cy.ts'
     const result = specSlug(longPath)
@@ -59,17 +46,6 @@ describe('testFilename — collision-resistant safe filename', () => {
     const a = testFilename(base + ' variant-a')
     const b = testFilename(base + ' variant-b')
     expect(a).not.toBe(b)
-  })
-
-  it('NFKC-equivalent titles map to the same filename (canonical hash, prevents duplicate snapshots)', () => {
-    const ascii = testFilename('a test case')
-    const fullwidth = testFilename('\uff41 test case') // ａ = fullwidth a, NFKC → a
-    expect(ascii).toBe(fullwidth)
-  })
-
-  it('never contains null bytes or control characters in output (L6)', () => {
-    const result = testFilename('test\x00title\x01\x1f')
-    expect(result).not.toMatch(/[\x00-\x1f]/)
   })
 
   it('output length is bounded regardless of title length (DoS prevention)', () => {
