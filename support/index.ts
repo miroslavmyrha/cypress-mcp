@@ -2,6 +2,7 @@
 // cypress-mcp support — browser side
 // Import in cypress/support/e2e.ts:
 //   import 'cypress-mcp/support'
+import { safeStringify } from '../src/utils/safe-stringify.js'
 
 interface CommandEntry {
   name: string
@@ -30,14 +31,6 @@ const commandLog: CommandEntry[] = []
 let consoleErrors: string[] = []
 let networkErrors: NetworkError[] = []
 
-// M7: safe JSON serialization — prevents TypeError on circular references (Vue proxies, React fibers)
-function safeStringify(a: unknown): string {
-  try {
-    return JSON.stringify(a)
-  } catch {
-    return '[Unserializable]'
-  }
-}
 
 Cypress.on('log:added', (log: { name: string; message?: string }) => {
   if (!SKIP_COMMANDS.has(log.name)) {
