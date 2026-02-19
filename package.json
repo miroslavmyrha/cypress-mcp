@@ -1,0 +1,60 @@
+{
+  "name": "cypress-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Cypress test runner — lets Claude read spec files and test results",
+  "type": "module",
+  "bin": {
+    "cypress-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/server.js",
+    "./plugin": "./dist/plugin/index.js",
+    "./support": "./dist/support/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.5.0",
+    "commander": "^12.0.0",
+    "glob": "^11.0.0",
+    "node-html-parser": "^7.0.2",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "cypress": "^13.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "cypress": ">=12.0.0"
+  },
+  "peerDependenciesMeta": {
+    "cypress": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "cypress",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "testing"
+  ],
+  "license": "MIT",
+  "packageManager": "bun@1.2.0"
+}
