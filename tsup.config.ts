@@ -22,6 +22,6 @@ export default defineConfig([
     target: 'node18',
     clean: false,
     dts: true,
-    sourcemap: true,
+    sourcemap: false,
   },
 ])

@@ -13,6 +13,8 @@ const MAX_BREADCRUMB_DEPTH = 50    // M6: limit ancestor traversal depth
 const MAX_SNAPSHOT_FILE_BYTES = 2 * 1_024 * 1_024 // M6: 2 MB HTML cap (prevents O(N²) :nth-child DoS)
 const MAX_LAST_RUN_BYTES = 50 * 1_024 * 1_024 // F7: 50 MB — same cap as get-last-run.ts
 const MAX_SELECTOR_LENGTH = 512    // L4: block excessively long selectors
+const DANGEROUS_TAGS = 'script, style, noscript' // H8: tags to strip before querying
+const BLOCKED_PSEUDOS = [':has(', ':contains(', ':icontains('] // F11: DoS / text-probing vectors
 
 // H3: runtime schema — only validate fields we access, preserve others with passthrough()
 const RunDataSchema = z
@@ -69,6 +71,14 @@ export async function queryDom(
   // L4: reject excessively long selectors before touching the DOM parser
   if (selector.length > MAX_SELECTOR_LENGTH) {
     return `Error: selector too long (max ${MAX_SELECTOR_LENGTH} characters)`
+  }
+
+  // F11: block pseudo-selectors that cause exponential traversal (:has) or text probing (:contains)
+  const selectorLower = selector.toLowerCase()
+  for (const pseudo of BLOCKED_PSEUDOS) {
+    if (selectorLower.includes(pseudo)) {
+      return `Error: selector "${pseudo}" is not allowed for security reasons.`
+    }
   }
 
   // F6: normalize projectRoot to prevent containment-check bypass with trailing slashes or relative segments
@@ -148,6 +158,13 @@ export async function queryDom(
   }
 
   const root = parse(html)
+
+  // H8: strip dangerous elements from the DOM tree before querying —
+  // more reliable than regex sanitization (handles unclosed tags, nested contexts)
+  const dangerousTags = root.querySelectorAll(DANGEROUS_TAGS)
+  for (const el of dangerousTags) {
+    el.remove()
+  }
 
   // L4: wrap querySelectorAll — invalid selectors throw from the css-what parser
   let matches: HTMLElement[]

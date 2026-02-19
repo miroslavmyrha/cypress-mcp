@@ -241,6 +241,42 @@ describe('runSpec', () => {
     expect(data.output).toContain('password=[redacted]')
   })
 
+  it('redacts JSON-formatted secrets in stdout output (F14)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    setImmediate(() => {
+      proc.stdout.emit('data', Buffer.from('{"password":"secret123","user":"admin"}\n'))
+      proc.emit('close', 0)
+    })
+
+    const result = await runPromise
+    const data = JSON.parse(result)
+    expect(data.output).not.toContain('secret123')
+    expect(data.output).toContain('"password":"[redacted]"')
+  })
+
+  it('redacts unsigned JWTs with empty signature (F14)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    // JWT with empty signature segment (trailing dot, no signature chars)
+    const unsignedJwt = 'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.'
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    setImmediate(() => {
+      proc.stdout.emit('data', Buffer.from(`Received: ${unsignedJwt}\n`))
+      proc.emit('close', 0)
+    })
+
+    const result = await runPromise
+    const data = JSON.parse(result)
+    expect(data.output).not.toContain('eyJ')
+    expect(data.output).toContain('[jwt-redacted]')
+  })
+
   it('redacts connection strings in stdout output (F14)', async () => {
     setupNormalFile()
     const proc = createMockProcess({ neverClose: true })
@@ -255,6 +291,23 @@ describe('runSpec', () => {
     const result = await runPromise
     const data = JSON.parse(result)
     expect(data.output).not.toContain('postgresql://')
+    expect(data.output).toContain('[connection-string-redacted]')
+  })
+
+  it('redacts mongodb+srv:// connection strings in stdout output (F14)', async () => {
+    setupNormalFile()
+    const proc = createMockProcess({ neverClose: true })
+    mockSpawn.mockReturnValue(proc as never)
+
+    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    setImmediate(() => {
+      proc.stdout.emit('data', Buffer.from('DB: mongodb+srv://admin:pass@cluster0.example.net/mydb\n'))
+      proc.emit('close', 0)
+    })
+
+    const result = await runPromise
+    const data = JSON.parse(result)
+    expect(data.output).not.toContain('mongodb+srv://')
     expect(data.output).toContain('[connection-string-redacted]')
   })
 

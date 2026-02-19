@@ -1,5 +1,5 @@
 /// <reference types="cypress" />
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
@@ -75,16 +75,36 @@ export interface McpPluginOptions {
 
 // H22: Pattern-based redaction for displayError — assertion failures may contain
 // secrets (JWTs, passwords, tokens) from test assertions comparing expected vs actual values.
-const JWT_RE = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g
+// Fix #4: Relaxed — optional signature segment catches unsigned JWTs and short segments
+const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
+// Fix #2: JSON-formatted secrets like "password":"secret123" bypass the key=value SECRET_RE
+const SECRET_JSON_RE = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{4,}"/gi
 const SECRET_RE = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
 
 export function redactSecrets(text: string): string {
-  return text.replace(JWT_RE, '[jwt-redacted]').replace(SECRET_RE, '$1=[redacted]')
+  return text
+    .replace(JWT_RE, '[jwt-redacted]')
+    .replace(SECRET_JSON_RE, '"$1":"[redacted]"')
+    .replace(SECRET_RE, '$1=[redacted]')
 }
 
 const OUTPUT_DIR_NAME = '.cypress-mcp'
 const SNAPSHOTS_SUBDIR = 'snapshots'
 
+// Fix #10: Refuse to write through symlinks — readers already check via realpath(),
+// but writers must also guard against symlink targets replacing snapshot or temp files.
+function safeWriteFileSync(filePath: string, content: string): void {
+  try {
+    const stat = lstatSync(filePath)
+    if (stat.isSymbolicLink()) {
+      process.stderr.write(`[cypress-mcp] Refusing to write to symlink: ${filePath}\n`)
+      return
+    }
+  } catch {
+    // ENOENT = file doesn't exist yet, safe to create
+  }
+  writeFileSync(filePath, content, 'utf-8')
+}
 
 function buildSpecResult(
   spec: Cypress.Spec,
@@ -106,7 +126,7 @@ function buildSpecResult(
         mkdirSync(specDir, { recursive: true })
         const filename = testFilename(titlePath)
         const snapshotFile = path.join(specDir, filename)
-        writeFileSync(snapshotFile, logEntry.domSnapshot, 'utf-8')
+        safeWriteFileSync(snapshotFile, logEntry.domSnapshot)
         // Store as relative path from .cypress-mcp/ directory
         domSnapshotPath = path.join(SNAPSHOTS_SUBDIR, specSlug(spec.relative), filename)
       } catch (err) {
@@ -169,7 +189,7 @@ export function cypressMcpPlugin(
     // M8: atomic write — write to temp file then rename to prevent torn reads from concurrent
     // processes or readers seeing partial JSON during the write window
     const tmpFile = `${outputFile}.tmp`
-    writeFileSync(tmpFile, JSON.stringify(data, null, 2))
+    safeWriteFileSync(tmpFile, JSON.stringify(data, null, 2))
     renameSync(tmpFile, outputFile) // POSIX rename(2) is atomic
   }
 
@@ -177,6 +197,8 @@ export function cypressMcpPlugin(
   on('before:run', () => {
     runSpecs.clear()
     runTimestamp = new Date().toISOString()
+    // Fix #9: Clean up stale snapshots from previous runs — prevents unbounded growth
+    rmSync(snapshotsDir, { recursive: true, force: true })
   })
 
   on('task', {

@@ -6,8 +6,8 @@
 // allowing subsequent text to be interpreted as LLM instructions.
 // Opening tags are also escaped to prevent nested envelope injection.
 const ENVELOPE_TAG = 'external_test_data'
-const OPENING_TAG_RE = new RegExp(`<${ENVELOPE_TAG}>`, 'gi')
-const CLOSING_TAG_RE = new RegExp(`</${ENVELOPE_TAG}>`, 'gi')
+const OPENING_TAG_RE = new RegExp(`<${ENVELOPE_TAG}[^>]*>`, 'gi')
+const CLOSING_TAG_RE = new RegExp(`</${ENVELOPE_TAG}[^>]*>`, 'gi')
 const ESCAPED_OPENING = `&lt;${ENVELOPE_TAG}>`
 const ESCAPED_CLOSING = `&lt;/${ENVELOPE_TAG}>`
 

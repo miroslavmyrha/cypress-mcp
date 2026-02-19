@@ -59,6 +59,45 @@ describe('redactSecrets — H22 displayError secret redaction', () => {
     expect(result).toContain('auth=[redacted]')
   })
 
+  it('redacts JSON-formatted secrets like "password":"value" (Fix #2)', () => {
+    const input = '{"password":"secret123","user":"admin"}'
+    const result = redactSecrets(input)
+    expect(result).toContain('"password":"[redacted]"')
+    expect(result).not.toContain('secret123')
+    // Non-secret key should be untouched
+    expect(result).toContain('"user":"admin"')
+  })
+
+  it('redacts JSON secrets with various key names (Fix #2)', () => {
+    const cases = [
+      { input: '{"token":"abc12345"}', key: 'token' },
+      { input: '{"credential":"mypass99"}', key: 'credential' },
+      { input: '{"passwd":"longpass1"}', key: 'passwd' },
+      { input: '{"auth":"bearer_xyz"}', key: 'auth' },
+    ]
+    for (const { input, key } of cases) {
+      const result = redactSecrets(input)
+      expect(result).toContain(`"${key}":"[redacted]"`)
+    }
+  })
+
+  it('redacts unsigned JWTs (empty signature segment) (Fix #4)', () => {
+    // JWT with header.payload but empty signature: eyJ...eyJ...
+    const unsignedJwt = 'eyJhbGciOiJub25lIn0.eyJ1c2VySWQiOjF9.'
+    const input = `token was ${unsignedJwt} in response`
+    const result = redactSecrets(input)
+    expect(result).toContain('[jwt-redacted]')
+    expect(result).not.toContain('eyJ1c2VySWQiOjF9')
+  })
+
+  it('redacts JWTs without a signature segment at all (Fix #4)', () => {
+    const noSigJwt = 'eyJhbGciOiJub25lIn0.eyJ1c2VySWQiOjF9'
+    const input = `found ${noSigJwt} leaked`
+    const result = redactSecrets(input)
+    expect(result).toContain('[jwt-redacted]')
+    expect(result).not.toContain(noSigJwt)
+  })
+
   it('passes through normal error text unchanged', () => {
     const input = 'AssertionError: expected 42 to equal 43'
     expect(redactSecrets(input)).toBe(input)

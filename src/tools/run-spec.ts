@@ -30,13 +30,15 @@ export function killAllActiveRuns(): void {
 }
 
 // F14: redact sensitive data from Cypress stdout/stderr before returning to caller
-const JWT_RE = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g
+const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
+const SECRET_JSON_RE = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{4,}"/gi
 const SECRET_RE = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
-const CONNECTION_STRING_RE = /(?:postgres|mysql|mongo|redis)(?:ql)?:\/\/[^\s]+/gi
+const CONNECTION_STRING_RE = /(?:postgres|mysql|mongo(?:db\+srv)?|redis|amqp|mssql)(?:ql)?:\/\/[^\s]+/gi
 
 function redactOutput(text: string): string {
   return text
     .replace(JWT_RE, '[jwt-redacted]')
+    .replace(SECRET_JSON_RE, '"$1":"[redacted]"')
     .replace(SECRET_RE, '$1=[redacted]')
     .replace(CONNECTION_STRING_RE, '[connection-string-redacted]')
 }

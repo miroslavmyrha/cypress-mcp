@@ -34,33 +34,51 @@ const REDACT_IN_LOG = new Set(['type', 'clear', 'request', 'setCookie', 'session
 // Finding #4: Sanitize DOM snapshots to remove passwords, tokens, CSRF, and script contents
 function sanitizeDom(html: string): string {
   return html
-    // Redact password input values
-    .replace(/(<input[^>]*type\s*=\s*["']password["'][^>]*)\bvalue\s*=\s*["'][^"']*["']/gi, '$1value="[redacted]"')
-    // Redact hidden input values (CSRF tokens, etc.)
-    .replace(/(<input[^>]*type\s*=\s*["']hidden["'][^>]*)\bvalue\s*=\s*["'][^"']*["']/gi, '$1value="[redacted]"')
+    // Redact password input values (order-independent: handles value before or after type)
+    .replace(/<input\b[^>]*>/gi, (tag) => {
+      if (/type\s*=\s*["']?password["']?/i.test(tag)) {
+        return tag.replace(/\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/i, 'value="[redacted]"')
+      }
+      return tag
+    })
+    // Redact hidden input values (CSRF tokens, etc.) (order-independent)
+    .replace(/<input\b[^>]*>/gi, (tag) => {
+      if (/type\s*=\s*["']?hidden["']?/i.test(tag)) {
+        return tag.replace(/\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/i, 'value="[redacted]"')
+      }
+      return tag
+    })
+    // Redact textarea content
+    .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, '<textarea>[redacted]</textarea>')
+    // Redact style tag contents
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style>[redacted]</style>')
     // Redact script tag contents
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script>[redacted]</script>')
     // Redact data attributes that look like tokens/secrets
     .replace(/\b(data-(?:token|secret|key|auth|api-key|csrf))\s*=\s*["'][^"']*["']/gi, '$1="[redacted]"')
 }
 
-// Finding #12: Sanitize URLs that contain sensitive query parameters
-const SENSITIVE_URL_PARAMS = /[?&](token|access_token|api_key|key|secret|password|auth|authorization|code|session)[=][^&]*/gi
+// Finding #12: Sanitize URLs that contain sensitive query parameters (including fragment params)
+const SENSITIVE_URL_PARAMS = /[?&#](token|access_token|api_key|key|secret|password|auth|authorization|code|session|refresh_token|api-key|apiKey|jwt|credentials)[=][^&#]*/gi
 
 function sanitizeUrl(url: string): string {
   return url.replace(SENSITIVE_URL_PARAMS, (match, param) => {
-    const separator = match.startsWith('?') ? '?' : '&'
+    const separator = match[0] // '?', '&', or '#'
     return `${separator}${param}=[redacted]`
   })
 }
 
 // Finding #13: Redact JWTs, connection strings, and other secrets from log messages
-const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/g
-const SECRET_PATTERN = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
+// Fix #4: Relaxed JWT regex — + instead of {10,}, optional signature for alg:none tokens
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
+// Fix #2: JSON-aware pattern catches "password":"secret123" format (must run before general pattern)
+const SECRET_JSON_PATTERN = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{4,}"/gi
+const SECRET_PATTERN = /(password|secret|token|key|auth|bearer|passwd|credential)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
 
 function redactSecrets(msg: string): string {
   return msg
     .replace(JWT_PATTERN, '[jwt-redacted]')
+    .replace(SECRET_JSON_PATTERN, '"$1":"[redacted]"')
     .replace(SECRET_PATTERN, '$1=[redacted]')
 }
 

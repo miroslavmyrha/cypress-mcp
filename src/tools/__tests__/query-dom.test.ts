@@ -188,6 +188,51 @@ describe('queryDom', () => {
     expect(data.results[0].breadcrumb).toContain('button')
   })
 
+  it('rejects selector containing :has( for security (F11)', async () => {
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, '*:has(div)')
+    expect(result).toMatch(/":has\(" is not allowed for security reasons/)
+  })
+
+  it('rejects selector containing :has( case-insensitively (F11)', async () => {
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, '*:HAS(div)')
+    expect(result).toMatch(/":has\(" is not allowed for security reasons/)
+  })
+
+  it('rejects selector containing :contains( for security (F11)', async () => {
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'div:contains(secret)')
+    expect(result).toMatch(/":contains\(" is not allowed for security reasons/)
+  })
+
+  it('strips <script> elements so selector "script" returns no results (H8)', async () => {
+    setupValidQuery('<div><script>alert("xss")</script><p>safe</p></div>')
+
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'script')
+    expect(result).toMatch(/No elements found/)
+  })
+
+  it('strips <style> elements so selector "style" returns no results (H8)', async () => {
+    setupValidQuery('<div><style>body{display:none}</style><p>visible</p></div>')
+
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'style')
+    expect(result).toMatch(/No elements found/)
+  })
+
+  it('strips <noscript> elements so selector "noscript" returns no results (H8)', async () => {
+    setupValidQuery('<div><noscript>Enable JS</noscript><p>content</p></div>')
+
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'noscript')
+    expect(result).toMatch(/No elements found/)
+  })
+
+  it('still returns safe elements after dangerous tag stripping (H8)', async () => {
+    setupValidQuery('<div><script>bad</script><button class="btn">Click</button></div>')
+
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
+    const data = JSON.parse(result)
+    expect(data.results).toHaveLength(1)
+    expect(data.results[0].outerHTML).toContain('<button')
+  })
+
   it('limits results to MAX_QUERY_RESULTS (5) when more elements match', async () => {
     const buttons = Array.from({ length: 10 }, (_, i) => `<button id="b${i}">B${i}</button>`)
     setupValidQuery(`<div>${buttons.join('')}</div>`)
