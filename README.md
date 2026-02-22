@@ -151,6 +151,10 @@ Options:
 - Node.js 18+
 - Cypress 12+
 
+## Author
+
+Miroslav Myrha
+
 ## License
 
 MIT
