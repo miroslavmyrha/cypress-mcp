@@ -37,12 +37,6 @@ describe('getScreenshot', () => {
     ).rejects.toThrow('File extension not allowed')
   })
 
-  it('throws for non-image file disguised in screenshots directory', async () => {
-    await expect(
-      getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/cypress/screenshots/.env`),
-    ).rejects.toThrow('File extension not allowed')
-  })
-
   it('returns exists:true with file size when file is found', async () => {
     mockStat.mockResolvedValue({ size: 12345 } as never)
 

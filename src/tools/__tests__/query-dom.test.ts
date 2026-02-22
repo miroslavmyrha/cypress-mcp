@@ -203,24 +203,14 @@ describe('queryDom', () => {
     expect(result).toMatch(/":contains\(" is not allowed for security reasons/)
   })
 
-  it('strips <script> elements so selector "script" returns no results (H8)', async () => {
-    setupValidQuery('<div><script>alert("xss")</script><p>safe</p></div>')
+  it.each([
+    { tag: 'script', html: '<div><script>alert("xss")</script><p>safe</p></div>' },
+    { tag: 'style', html: '<div><style>body{display:none}</style><p>visible</p></div>' },
+    { tag: 'noscript', html: '<div><noscript>Enable JS</noscript><p>content</p></div>' },
+  ])('strips <$tag> elements so selector "$tag" returns no results (H8)', async ({ tag, html }) => {
+    setupValidQuery(html)
 
-    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'script')
-    expect(result).toMatch(/No elements found/)
-  })
-
-  it('strips <style> elements so selector "style" returns no results (H8)', async () => {
-    setupValidQuery('<div><style>body{display:none}</style><p>visible</p></div>')
-
-    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'style')
-    expect(result).toMatch(/No elements found/)
-  })
-
-  it('strips <noscript> elements so selector "noscript" returns no results (H8)', async () => {
-    setupValidQuery('<div><noscript>Enable JS</noscript><p>content</p></div>')
-
-    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'noscript')
+    const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, tag)
     expect(result).toMatch(/No elements found/)
   })
 

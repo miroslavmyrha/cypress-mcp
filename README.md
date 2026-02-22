@@ -81,6 +81,8 @@ npx cypress-mcp --project /path/to/project --transport http --port 3333
 | `read_spec` | Read a spec file's content by relative path |
 | `get_last_run` | Get results of the last test run: states, errors, command log, DOM snapshots |
 | `get_screenshot` | Get info about a screenshot file: path, exists, size |
+| `query_dom` | Query the DOM snapshot of a failed test using a CSS selector |
+| `run_spec` | Run a single Cypress spec file and wait for completion. Returns exit code and summary |
 
 ## Output format — `.cypress-mcp/last-run.json`
 
@@ -98,7 +100,7 @@ npx cypress-mcp --project /path/to/project --transport http --port 3333
           "state": "passed",
           "duration": 1200,
           "error": null,
-          "domSnapshot": null,
+          "domSnapshotPath": null,
           "commands": [
             { "name": "visit", "message": "/login" },
             { "name": "get", "message": "#email" },
@@ -110,7 +112,7 @@ npx cypress-mcp --project /path/to/project --transport http --port 3333
           "state": "failed",
           "duration": 800,
           "error": "Timed out retrying: Expected to find element: .error-message",
-          "domSnapshot": "<body><!-- actual DOM at time of failure, up to 100KB --></body>",
+          "domSnapshotPath": "snapshots/cypress-e2e-login-cy-ts/login--should-show-error-a1b2c3.html",
           "commands": [...]
         }
       ]
@@ -125,7 +127,7 @@ npx cypress-mcp --project /path/to/project --transport http --port 3333
 }
 ```
 
-All specs from a run are captured. In `cypress run` the accumulator resets on `before:run`. In `cypress open` results accumulate for the lifetime of the Cypress process. Failed tests include a `domSnapshot` (up to 100 KB of `document.body.outerHTML`).
+All specs from a run are captured. In `cypress run` the accumulator resets on `before:run`. In `cypress open` results accumulate for the lifetime of the Cypress process. Failed tests include a `domSnapshotPath` pointing to an HTML file (up to 100 KB of `document.body.outerHTML`) stored under `.cypress-mcp/snapshots/`.
 
 ## CLI options
 

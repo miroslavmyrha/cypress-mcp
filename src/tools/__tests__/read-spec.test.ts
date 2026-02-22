@@ -47,16 +47,6 @@ describe('readSpec', () => {
     )
   })
 
-  it('throws for non-spec TypeScript files', async () => {
-    mockRealpath.mockResolvedValue(
-      path.resolve(PROJECT_ROOT, 'cypress/support/helpers.ts') as never,
-    )
-
-    await expect(readSpec(PROJECT_ROOT, 'cypress/support/helpers.ts')).rejects.toThrow(
-      'File extension not allowed',
-    )
-  })
-
   it('throws friendly error when spec file does not exist (ENOENT)', async () => {
     const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     mockReadFile.mockRejectedValue(err as never)

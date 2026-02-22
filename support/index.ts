@@ -2,7 +2,16 @@
 // cypress-mcp support — browser side
 // Import in cypress/support/e2e.ts:
 //   import 'cypress-mcp/support'
-import { safeStringify } from '../src/utils/safe-stringify.js'
+// M7: safe JSON serialization — inlined to avoid fragile cross-directory import
+// (../src/utils/safe-stringify.js only works through tsup bundler, not ts-node)
+// Handles Symbol/Function/undefined (JSON.stringify returns undefined, not a string)
+function safeStringify(a: unknown): string {
+  try {
+    return JSON.stringify(a) ?? '[Unserializable]'
+  } catch {
+    return '[Unserializable]'
+  }
+}
 
 interface CommandEntry {
   name: string
@@ -35,15 +44,20 @@ const REDACT_IN_LOG = new Set(['type', 'clear', 'request', 'setCookie', 'session
 function sanitizeDom(html: string): string {
   return html
     // Redact password input values (order-independent: handles value before or after type)
+    // Decode HTML entities in type attribute to prevent bypass via &#112;assword
     .replace(/<input\b[^>]*>/gi, (tag) => {
-      if (/type\s*=\s*["']?password["']?/i.test(tag)) {
+      const decoded = tag.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+      if (/type\s*=\s*["']?password["']?/i.test(decoded)) {
         return tag.replace(/\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/i, 'value="[redacted]"')
       }
       return tag
     })
     // Redact hidden input values (CSRF tokens, etc.) (order-independent)
     .replace(/<input\b[^>]*>/gi, (tag) => {
-      if (/type\s*=\s*["']?hidden["']?/i.test(tag)) {
+      const decoded = tag.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+      if (/type\s*=\s*["']?hidden["']?/i.test(decoded)) {
         return tag.replace(/\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/i, 'value="[redacted]"')
       }
       return tag
@@ -54,12 +68,14 @@ function sanitizeDom(html: string): string {
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '<style>[redacted]</style>')
     // Redact script tag contents
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '<script>[redacted]</script>')
+    // Redact noscript tag contents
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '<noscript>[redacted]</noscript>')
     // Redact data attributes that look like tokens/secrets
-    .replace(/\b(data-(?:token|secret|key|auth|api-key|csrf))\s*=\s*["'][^"']*["']/gi, '$1="[redacted]"')
+    .replace(/\b(data-(?:token|secret|key|auth|api-key|csrf|password|access-token|jwt|session|credential|apikey|private))\s*=\s*["'][^"']*["']/gi, '$1="[redacted]"')
 }
 
 // Finding #12: Sanitize URLs that contain sensitive query parameters (including fragment params)
-const SENSITIVE_URL_PARAMS = /[?&#](token|access_token|api_key|key|secret|password|auth|authorization|code|session|refresh_token|api-key|apiKey|jwt|credentials)[=][^&#]*/gi
+const SENSITIVE_URL_PARAMS = /[?&#](token|access_token|api_key|key|secret|password|auth|authorization|code|session|refresh_token|api-key|apiKey|jwt|credentials|bearer|oauth_token|private_token|passwd|pass|apitoken)[=][^&#]*/gi
 
 function sanitizeUrl(url: string): string {
   return url.replace(SENSITIVE_URL_PARAMS, (match, param) => {
@@ -69,17 +85,23 @@ function sanitizeUrl(url: string): string {
 }
 
 // Finding #13: Redact JWTs, connection strings, and other secrets from log messages
+// Canonical source: src/utils/redact.ts — inlined due to ts-node constraint
 // Fix #4: Relaxed JWT regex — + instead of {10,}, optional signature for alg:none tokens
 const JWT_PATTERN = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
 // Fix #2: JSON-aware pattern catches "password":"secret123" format (must run before general pattern)
-const SECRET_JSON_PATTERN = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{4,}"/gi
-const SECRET_PATTERN = /(password|secret|token|key|auth|bearer|passwd|credential)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
+const SECRET_JSON_PATTERN = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{3,}"/gi
+const SECRET_PATTERN = /(password|secret|token|key|auth|bearer|passwd|credential)\s*[=:]\s*["']?[^\s"',}\]]{3,}/gi
+
+const BEARER_HEADER_PATTERN = /\bBearer\s+[A-Za-z0-9_\-/.+=]{10,}/gi
+const CONNECTION_STRING_PATTERN = /(?:postgres|mysql|mongo(?:db(?:\+srv)?)?|rediss?|amqps?|mssql)(?:ql)?:\/\/[^\s]+/gi
 
 function redactSecrets(msg: string): string {
   return msg
     .replace(JWT_PATTERN, '[jwt-redacted]')
     .replace(SECRET_JSON_PATTERN, '"$1":"[redacted]"')
     .replace(SECRET_PATTERN, '$1=[redacted]')
+    .replace(BEARER_HEADER_PATTERN, 'Bearer [redacted]')
+    .replace(CONNECTION_STRING_PATTERN, '[connection-string-redacted]')
 }
 
 const commandLog: CommandEntry[] = []

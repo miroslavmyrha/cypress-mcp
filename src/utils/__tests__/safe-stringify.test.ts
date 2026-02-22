@@ -12,10 +12,15 @@ describe('safeStringify — M7 circular reference protection', () => {
     expect(safeStringify(circular)).toBe('[Unserializable]')
   })
 
-  it('does not throw — always returns a string', () => {
-    const circular: Record<string, unknown> = {}
-    circular.self = circular
-    expect(() => safeStringify(circular)).not.toThrow()
-    expect(typeof safeStringify(circular)).toBe('string')
+  it('returns [Unserializable] for Symbol (JSON.stringify returns undefined)', () => {
+    expect(safeStringify(Symbol('test'))).toBe('[Unserializable]')
+  })
+
+  it('returns [Unserializable] for undefined (JSON.stringify returns undefined)', () => {
+    expect(safeStringify(undefined)).toBe('[Unserializable]')
+  })
+
+  it('returns [Unserializable] for bare function (JSON.stringify returns undefined)', () => {
+    expect(safeStringify(() => {})).toBe('[Unserializable]')
   })
 })

@@ -4,11 +4,12 @@ import { EventEmitter } from 'node:events'
 vi.mock('node:fs/promises')
 vi.mock('node:child_process')
 
-import { lstat } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { runSpec, killAllActiveRuns } from '../run-spec.js'
 
 const mockLstat = vi.mocked(lstat)
+const mockRealpath = vi.mocked(realpath)
 const mockSpawn = vi.mocked(spawn)
 
 const PROJECT_ROOT = '/fake/project'
@@ -32,7 +33,8 @@ function createMockProcess(opts: { exitCode?: number; neverClose?: boolean } = {
 }
 
 function setupNormalFile() {
-  mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as never)
+  // realpath resolves to the same path for normal (non-symlink) files
+  mockRealpath.mockImplementation((p) => Promise.resolve(p as string) as never)
 }
 
 beforeEach(() => {
@@ -58,17 +60,18 @@ describe('runSpec', () => {
     )
   })
 
-  it('rejects symlink spec files (Layer 4)', async () => {
-    mockLstat.mockResolvedValue({ isSymbolicLink: () => true } as never)
+  it('rejects symlink spec files whose target escapes project root (Layer 4)', async () => {
+    // realpath resolves the symlink to a path outside projectRoot
+    mockRealpath.mockResolvedValue('/outside/project/evil.cy.ts' as never)
 
     await expect(runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')).rejects.toThrow(
-      'symbolic link',
+      'symlink target escapes boundary',
     )
   })
 
   it('throws friendly error when spec file does not exist (ENOENT, Layer 4)', async () => {
     const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
-    mockLstat.mockRejectedValue(err as never)
+    mockRealpath.mockRejectedValue(err as never)
 
     await expect(runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')).rejects.toThrow(
       'Spec file not found',
@@ -206,109 +209,97 @@ describe('runSpec', () => {
     expect(data.success).toBe(true)
   })
 
-  it('redacts JWTs in stdout output (F14)', async () => {
-    setupNormalFile()
-    const proc = createMockProcess({ neverClose: true })
+  it('uses realpath-resolved path in spawn args (TOCTOU fix)', async () => {
+    // realpath resolves symlink to a different (but still within-project) path
+    mockRealpath.mockResolvedValue('/fake/project/cypress/e2e/actual-login.cy.ts' as never)
+    const proc = createMockProcess()
     mockSpawn.mockReturnValue(proc as never)
 
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123signature'
-    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
-    setImmediate(() => {
-      proc.stdout.emit('data', Buffer.from(`Received: ${jwt}\n`))
-      proc.emit('close', 0)
-    })
+    await runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
 
-    const result = await runPromise
-    const data = JSON.parse(result)
-    expect(data.output).not.toContain('eyJ')
-    expect(data.output).toContain('[jwt-redacted]')
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+    expect(spawnArgs).toContain('/fake/project/cypress/e2e/actual-login.cy.ts')
   })
 
-  it('redacts secret key-value pairs in stdout output (F14)', async () => {
+  it('passes --headed flag when headed:true is specified', async () => {
     setupNormalFile()
-    const proc = createMockProcess({ neverClose: true })
+    const proc = createMockProcess()
     mockSpawn.mockReturnValue(proc as never)
 
-    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
-    setImmediate(() => {
-      proc.stdout.emit('data', Buffer.from('password=SuperSecret123\ntoken: abc-xyz-secret\n'))
-      proc.emit('close', 0)
-    })
+    await runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts', { headed: true })
 
-    const result = await runPromise
-    const data = JSON.parse(result)
-    expect(data.output).not.toContain('SuperSecret123')
-    expect(data.output).toContain('password=[redacted]')
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+    expect(spawnArgs).toContain('--headed')
   })
 
-  it('redacts JSON-formatted secrets in stdout output (F14)', async () => {
+  it('passes --browser flag when browser is specified', async () => {
     setupNormalFile()
-    const proc = createMockProcess({ neverClose: true })
+    const proc = createMockProcess()
     mockSpawn.mockReturnValue(proc as never)
 
-    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
-    setImmediate(() => {
-      proc.stdout.emit('data', Buffer.from('{"password":"secret123","user":"admin"}\n'))
-      proc.emit('close', 0)
-    })
+    await runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts', { browser: 'chrome' })
 
-    const result = await runPromise
-    const data = JSON.parse(result)
-    expect(data.output).not.toContain('secret123')
-    expect(data.output).toContain('"password":"[redacted]"')
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+    expect(spawnArgs).toContain('--browser')
+    expect(spawnArgs).toContain('chrome')
   })
 
-  it('redacts unsigned JWTs with empty signature (F14)', async () => {
+  it('does not pass --headed or --browser when options are omitted', async () => {
     setupNormalFile()
-    const proc = createMockProcess({ neverClose: true })
+    const proc = createMockProcess()
     mockSpawn.mockReturnValue(proc as never)
 
-    // JWT with empty signature segment (trailing dot, no signature chars)
-    const unsignedJwt = 'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.'
-    const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
-    setImmediate(() => {
-      proc.stdout.emit('data', Buffer.from(`Received: ${unsignedJwt}\n`))
-      proc.emit('close', 0)
-    })
+    await runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
 
-    const result = await runPromise
-    const data = JSON.parse(result)
-    expect(data.output).not.toContain('eyJ')
-    expect(data.output).toContain('[jwt-redacted]')
+    const spawnArgs = mockSpawn.mock.calls[0][1] as string[]
+    expect(spawnArgs).not.toContain('--headed')
+    expect(spawnArgs).not.toContain('--browser')
   })
 
-  it('redacts connection strings in stdout output (F14)', async () => {
+  it('does not double-decrement activeRuns when spawn fires both error and close', async () => {
     setupNormalFile()
-    const proc = createMockProcess({ neverClose: true })
+    const proc = new EventEmitter() as MockProcess
+    proc.stdout = new EventEmitter()
+    proc.stderr = new EventEmitter()
+    proc.kill = vi.fn()
     mockSpawn.mockReturnValue(proc as never)
 
     const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    // Node.js fires both 'error' and 'close' when spawn fails with ENOENT
+    const spawnErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     setImmediate(() => {
-      proc.stdout.emit('data', Buffer.from('DB: postgresql://user:pass@localhost:5432/db\n'))
-      proc.emit('close', 0)
+      proc.emit('error', spawnErr)
+      proc.emit('close', null)
     })
 
-    const result = await runPromise
-    const data = JSON.parse(result)
-    expect(data.output).not.toContain('postgresql://')
-    expect(data.output).toContain('[connection-string-redacted]')
+    await expect(runPromise).rejects.toThrow('Cypress binary not found')
+
+    // After the failed run, a new run should succeed (activeRuns should be 0, not -1)
+    setupNormalFile()
+    const proc2 = createMockProcess({ exitCode: 0 })
+    mockSpawn.mockReturnValue(proc2 as never)
+    const result = await runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
+    expect(JSON.parse(result).success).toBe(true)
   })
 
-  it('redacts mongodb+srv:// connection strings in stdout output (F14)', async () => {
+  it('sends SIGTERM and rejects with timeout message when run exceeds timeout', async () => {
+    vi.useFakeTimers()
     setupNormalFile()
     const proc = createMockProcess({ neverClose: true })
     mockSpawn.mockReturnValue(proc as never)
 
     const runPromise = runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')
-    setImmediate(() => {
-      proc.stdout.emit('data', Buffer.from('DB: mongodb+srv://admin:pass@cluster0.example.net/mydb\n'))
-      proc.emit('close', 0)
-    })
 
-    const result = await runPromise
-    const data = JSON.parse(result)
-    expect(data.output).not.toContain('mongodb+srv://')
-    expect(data.output).toContain('[connection-string-redacted]')
+    // Advance past the 5-minute timeout (RUN_SPEC_TIMEOUT_MS = 300_000)
+    await vi.advanceTimersByTimeAsync(300_001)
+
+    expect(proc.kill).toHaveBeenCalledWith('SIGTERM')
+
+    // Simulate the process closing after SIGTERM
+    proc.emit('close', null)
+
+    await expect(runPromise).rejects.toThrow('timed out after 300s')
+    vi.useRealTimers()
   })
 
   it('killAllActiveRuns sends SIGTERM to all active child processes (F11)', async () => {

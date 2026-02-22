@@ -12,7 +12,8 @@ const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg']
 // H5: projectRoot is required — screenshots must be within the project
 export async function getScreenshot(projectRoot: string, screenshotPath: string): Promise<ScreenshotInfo> {
   // Security: restrict to paths within the project root to prevent filesystem oracle attacks
-  const resolved = path.resolve(screenshotPath)
+  // Resolve relative paths against projectRoot (not CWD); absolute paths are used as-is
+  const resolved = path.resolve(projectRoot, screenshotPath)
   const rootPrefix = path.resolve(projectRoot) + path.sep
   if (!resolved.startsWith(rootPrefix)) {
     throw new Error('Screenshot path must be within the project root')
@@ -25,11 +26,14 @@ export async function getScreenshot(projectRoot: string, screenshotPath: string)
   }
 
   // Security: resolve symlinks and re-check containment to prevent symlink escape
+  // Use the real (symlink-resolved) path for subsequent stat to close the TOCTOU window
+  let statPath = resolved
   try {
     const real = await realpath(resolved)
     if (!real.startsWith(rootPrefix)) {
       throw new Error('Screenshot path must be within the project root')
     }
+    statPath = real
   } catch (err) {
     // If file doesn't exist, realpath will throw ENOENT — fall through to stat below
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -38,7 +42,7 @@ export async function getScreenshot(projectRoot: string, screenshotPath: string)
   }
 
   try {
-    const stats = await stat(resolved)
+    const stats = await stat(statPath)
     return { path: screenshotPath, exists: true, sizeBytes: stats.size }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {

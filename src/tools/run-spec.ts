@@ -1,6 +1,7 @@
-import { lstat } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { redactSecrets } from '../utils/redact.js'
 
 const SPEC_PATTERN = /\.(cy|spec)\.(ts|js|tsx|jsx|mjs|cjs)$/
 const RUN_SPEC_TIMEOUT_MS = 5 * 60 * 1_000
@@ -29,21 +30,12 @@ export function killAllActiveRuns(): void {
   activeProcesses.clear()
 }
 
-// F14: redact sensitive data from Cypress stdout/stderr before returning to caller
-const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
-const SECRET_JSON_RE = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{4,}"/gi
-const SECRET_RE = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
-const CONNECTION_STRING_RE = /(?:postgres|mysql|mongo(?:db\+srv)?|redis|amqp|mssql)(?:ql)?:\/\/[^\s]+/gi
-
-function redactOutput(text: string): string {
-  return text
-    .replace(JWT_RE, '[jwt-redacted]')
-    .replace(SECRET_JSON_RE, '"$1":"[redacted]"')
-    .replace(SECRET_RE, '$1=[redacted]')
-    .replace(CONNECTION_STRING_RE, '[connection-string-redacted]')
+export interface RunSpecOptions {
+  headed?: boolean
+  browser?: string
 }
 
-export async function runSpec(projectRoot: string, specPath: string): Promise<string> {
+export async function runSpec(projectRoot: string, specPath: string, options?: RunSpecOptions): Promise<string> {
   // M3: reject concurrent runs to prevent resource exhaustion
   if (activeRuns >= MAX_CONCURRENT_RUNS) {
     throw new Error('Another spec run is already in progress. Wait for it to complete first.')
@@ -53,23 +45,21 @@ export async function runSpec(projectRoot: string, specPath: string): Promise<st
   // NOT here in a finally block. This prevents the counter from being decremented
   // before the child process actually exits (e.g., during timeout kill).
   // Pre-spawn validation errors still need to decrement here.
+  // We use a closure boolean instead of duck-typing error properties to avoid
+  // false matches on unexpected errors that happen to have a _childExited property.
+  let childHandledDecrement = false
+  const onChildDecrement = () => { childHandledDecrement = true }
   try {
-    return await _runSpec(projectRoot, specPath)
+    return await _runSpec(projectRoot, specPath, onChildDecrement, options)
   } catch (err) {
-    // If the error came from _runSpec's pre-spawn validation (before the child
-    // process was created), we need to decrement here. If it came from inside
-    // the promise (close/error/timeout handlers), _runSpec already decremented.
-    // We use a marker property to distinguish.
-    if (err instanceof Error && '_childExited' in err) {
-      // Already decremented by close/error handler
-      throw err
+    if (!childHandledDecrement) {
+      activeRuns--
     }
-    activeRuns--
     throw err
   }
 }
 
-async function _runSpec(projectRoot: string, specPath: string): Promise<string> {
+async function _runSpec(projectRoot: string, specPath: string, onChildDecrement: () => void, options?: RunSpecOptions): Promise<string> {
   // F5: normalize projectRoot to remove trailing slashes and .. segments before path comparison
   projectRoot = path.resolve(projectRoot)
 
@@ -91,16 +81,18 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
     )
   }
 
-  // Layer 4: file must exist and must not be a symlink (L3: TOCTOU + symlink protection)
+  // Layer 4: resolve symlinks and re-check containment (closes TOCTOU window from lstat+spawn)
+  let realResolved: string
   try {
-    const fileStat = await lstat(resolved)
-    if (fileStat.isSymbolicLink()) {
-      throw new Error('Spec path must not be a symbolic link.')
-    }
+    realResolved = await realpath(resolved)
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT') throw new Error(`Spec file not found: ${specPath}`)
     throw err
+  }
+  const rootPrefix = projectRoot + path.sep
+  if (!realResolved.startsWith(rootPrefix)) {
+    throw new Error('Spec path must be within the project root (symlink target escapes boundary).')
   }
 
   const cypressBin = path.join(projectRoot, CYPRESS_BIN)
@@ -109,7 +101,12 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
   return new Promise((resolve, reject) => {
     // shell: false is critical — prevents command injection via specPath
     // M4: pass minimal env — avoids leaking GITHUB_TOKEN, DATABASE_URL, AWS_* etc. to Cypress
-    const child = spawn(cypressBin, ['run', '--spec', resolved], {
+    // Use realResolved (symlink-resolved) to prevent TOCTOU race between check and spawn
+    const args = ['run', '--spec', realResolved]
+    if (options?.headed) args.push('--headed')
+    if (options?.browser) args.push('--browser', options.browser)
+
+    const child = spawn(cypressBin, args, {
       shell: false,
       cwd: projectRoot,
       env: {
@@ -156,34 +153,38 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
       // F16: do NOT reject or decrement activeRuns here — wait for the 'close' event
     }, RUN_SPEC_TIMEOUT_MS)
 
+    // Guard against double-decrement: Node.js fires both 'error' and 'close' when
+    // spawn fails (e.g. ENOENT). Without this flag, activeRuns would go to -1.
+    let decremented = false
+    function decrementOnce() {
+      if (!decremented) {
+        decremented = true
+        activeRuns--
+        onChildDecrement()
+      }
+    }
+
     child.on('error', (err) => {
       clearTimeout(timer)
       // F11: remove from active set on exit
       activeProcesses.delete(child)
-      // F16: child process failed to start or errored — safe to decrement now
-      activeRuns--
+      decrementOnce()
       // L2: strip internal paths from error messages
       const message =
         (err as NodeJS.ErrnoException).code === 'ENOENT'
           ? 'Cypress binary not found. Run `npm install cypress` in the project.'
           : 'Failed to start Cypress process.'
-      const markedErr = Object.assign(new Error(message), { _childExited: true })
-      reject(markedErr)
+      reject(new Error(message))
     })
 
     child.on('close', (code) => {
       clearTimeout(timer)
       // F11: remove from active set on exit
       activeProcesses.delete(child)
-      // F16: child process has actually exited — safe to decrement now
-      activeRuns--
+      decrementOnce()
 
       if (timedOut) {
-        const markedErr = Object.assign(
-          new Error(`run_spec timed out after ${RUN_SPEC_TIMEOUT_MS / 1_000}s`),
-          { _childExited: true },
-        )
-        reject(markedErr)
+        reject(new Error(`run_spec timed out after ${RUN_SPEC_TIMEOUT_MS / 1_000}s`))
         return
       }
 
@@ -194,7 +195,7 @@ async function _runSpec(projectRoot: string, specPath: string): Promise<string> 
         exitCode: code ?? -1,
         durationMs,
         // F14: redact secrets then surface first 2KB of output for quick diagnosis; full results via get_last_run
-        output: redactOutput((stdout + stderr).slice(0, 2_000)) || null,
+        output: redactSecrets((stdout + stderr).slice(0, 2_000)) || null,
         message: 'Run complete. Call get_last_run to see full results.',
       }
       resolve(JSON.stringify(result, null, 2))

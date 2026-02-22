@@ -3,6 +3,8 @@ import { lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs
 import path from 'node:path'
 import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
+import { redactSecrets } from '../utils/redact.js'
+export { redactSecrets }
 
 // CypressCommandLine and Cypress are global namespaces from the cypress types reference above
 
@@ -73,20 +75,8 @@ export interface McpPluginOptions {
   screenshots?: boolean
 }
 
-// H22: Pattern-based redaction for displayError — assertion failures may contain
-// secrets (JWTs, passwords, tokens) from test assertions comparing expected vs actual values.
-// Fix #4: Relaxed — optional signature segment catches unsigned JWTs and short segments
-const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
-// Fix #2: JSON-formatted secrets like "password":"secret123" bypass the key=value SECRET_RE
-const SECRET_JSON_RE = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{4,}"/gi
-const SECRET_RE = /(password|secret|token|key|auth|bearer)\s*[=:]\s*["']?[^\s"',}\]]{4,}/gi
-
-export function redactSecrets(text: string): string {
-  return text
-    .replace(JWT_RE, '[jwt-redacted]')
-    .replace(SECRET_JSON_RE, '"$1":"[redacted]"')
-    .replace(SECRET_RE, '$1=[redacted]')
-}
+// Cap testLogs entries to prevent OOM via cy.task flood with unique testTitles
+const MAX_TEST_LOG_ENTRIES = 500
 
 const OUTPUT_DIR_NAME = '.cypress-mcp'
 const SNAPSHOTS_SUBDIR = 'snapshots'
@@ -196,9 +186,16 @@ export function cypressMcpPlugin(
   // cypress run: fires before all specs — reset accumulator
   on('before:run', () => {
     runSpecs.clear()
+    testLogs.clear()
     runTimestamp = new Date().toISOString()
     // Fix #9: Clean up stale snapshots from previous runs — prevents unbounded growth
     rmSync(snapshotsDir, { recursive: true, force: true })
+  })
+
+  // Clear testLogs before each spec to prevent stale data bleeding across specs
+  // if after:spec was skipped due to crash/abort
+  on('before:spec', () => {
+    testLogs.clear()
   })
 
   on('task', {
@@ -210,6 +207,10 @@ export function cypressMcpPlugin(
         process.stderr.write(
           `[cypress-mcp] Rejected invalid mcpSaveTestLog payload: ${result.error.message}\n`,
         )
+        return null
+      }
+      if (testLogs.size >= MAX_TEST_LOG_ENTRIES && !testLogs.has(result.data.testTitle)) {
+        process.stderr.write('[cypress-mcp] testLogs cap reached, ignoring new entry\n')
         return null
       }
       testLogs.set(result.data.testTitle, result.data)

@@ -13,11 +13,11 @@ beforeEach(() => {
 })
 
 describe('listSpecs', () => {
-  it('uses default pattern when none is provided', async () => {
+  it('uses default patterns when none is provided', async () => {
     mockGlob.mockResolvedValue([] as never)
     await listSpecs(PROJECT_ROOT)
     expect(mockGlob).toHaveBeenCalledWith(
-      '**/*.cy.{ts,js,tsx,jsx}',
+      ['**/*.cy.ts', '**/*.cy.js', '**/*.cy.tsx', '**/*.cy.jsx'],
       expect.objectContaining({ cwd: PROJECT_ROOT }),
     )
   })
@@ -26,7 +26,7 @@ describe('listSpecs', () => {
     mockGlob.mockResolvedValue([] as never)
     await listSpecs(PROJECT_ROOT, 'src/**/*.spec.ts')
     expect(mockGlob).toHaveBeenCalledWith(
-      'src/**/*.spec.ts',
+      ['src/**/*.spec.ts'],
       expect.any(Object),
     )
   })
@@ -44,6 +44,13 @@ describe('listSpecs', () => {
     expect(ignoreArg).toContain('node_modules/**')
     expect(ignoreArg).toContain('dist/**')
     expect(ignoreArg).toContain('.git/**')
+  })
+
+  it('disables brace expansion at glob level (defense-in-depth against path injection)', async () => {
+    mockGlob.mockResolvedValue([] as never)
+    await listSpecs(PROJECT_ROOT)
+    const options = mockGlob.mock.calls[0][1] as { nobrace: boolean }
+    expect(options.nobrace).toBe(true)
   })
 
   it('does not follow symlinks (prevents enumeration outside project via symlinked dirs)', async () => {
