@@ -4,7 +4,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
 import { redactSecrets } from '../utils/redact.js'
-import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH, MAX_MESSAGE_LENGTH, MAX_URL_LENGTH } from '../utils/constants.js'
+import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH, MAX_MESSAGE_LENGTH, MAX_URL_LENGTH, MAX_COMMANDS_PER_TEST } from '../utils/constants.js'
 import { getErrorMessage, getErrnoCode } from '../utils/errors.js'
 import type { CommandEntry, NetworkError } from '../types.js'
 
@@ -13,7 +13,6 @@ const MAX_COMMAND_NAME_LENGTH = 100
 const MAX_HTTP_METHOD_LENGTH = 10
 const MIN_HTTP_STATUS = 100
 const MAX_HTTP_STATUS = 599
-const MAX_COMMANDS_PER_TEST = 200
 const MAX_DOM_SNAPSHOT_LENGTH = 200_000
 const MAX_ERRORS_PER_TEST = 50
 

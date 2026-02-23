@@ -33,3 +33,4 @@ export const MAX_SPEC_PATH_LENGTH = 2_048
 export const MAX_SELECTOR_LENGTH = 512
 export const MAX_MESSAGE_LENGTH = 1_000
 export const MAX_URL_LENGTH = 2_048
+export const MAX_COMMANDS_PER_TEST = 200
