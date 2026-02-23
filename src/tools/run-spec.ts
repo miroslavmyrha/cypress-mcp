@@ -1,8 +1,8 @@
-import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { redactSecrets } from '../utils/redact.js'
 import { SPEC_EXTENSION_RE } from '../utils/constants.js'
+import { resolveSecurePath } from '../utils/path-security.js'
 const RUN_SPEC_TIMEOUT_MS = 5 * 60 * 1_000
 const SIGKILL_GRACE_MS = 5_000 // M2: grace period before SIGKILL after SIGTERM
 // M10: cap stdout/stderr accumulation — Cypress can produce tens of MB over a 5-minute run.
@@ -63,36 +63,26 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
   // F5: normalize projectRoot to remove trailing slashes and .. segments before path comparison
   projectRoot = path.resolve(projectRoot)
 
-  // Layer 1: reject absolute paths
+  // Layer 1: reject absolute paths — UX guardrail for spec path input
   if (path.isAbsolute(specPath)) {
     throw new Error('spec must be a relative path (e.g. "cypress/e2e/login.cy.ts")')
   }
 
-  // Layer 2: path traversal check — resolved path must stay within project root
-  const resolved = path.resolve(projectRoot, specPath)
-  if (!resolved.startsWith(projectRoot + path.sep)) {
-    throw new Error('spec path must be within the project root')
-  }
-
-  // Layer 3: extension check — only accept recognised spec file extensions
+  // Layer 2: extension check — only accept recognised spec file extensions
   if (!SPEC_EXTENSION_RE.test(specPath)) {
     throw new Error(
       'spec must match *.cy.{ts,js,tsx,jsx} or *.spec.{ts,js,tsx,jsx}',
     )
   }
 
-  // Layer 4: resolve symlinks and re-check containment (closes TOCTOU window from lstat+spawn)
+  // Layer 3+4: path containment + symlink resolution (single source of truth)
   let realResolved: string
   try {
-    realResolved = await realpath(resolved)
+    realResolved = await resolveSecurePath(projectRoot, specPath)
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT') throw new Error(`Spec file not found: ${specPath}`)
     throw err
-  }
-  const rootPrefix = projectRoot + path.sep
-  if (!realResolved.startsWith(rootPrefix)) {
-    throw new Error('Spec path must be within the project root (symlink target escapes boundary).')
   }
 
   const cypressBin = path.join(projectRoot, CYPRESS_BIN)

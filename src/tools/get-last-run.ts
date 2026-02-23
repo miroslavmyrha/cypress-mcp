@@ -1,14 +1,12 @@
-import { REDACT_COMMANDS } from '../utils/constants.js'
-import { readLastRunData } from '../utils/read-last-run.js'
-
-const NO_RESULTS_MESSAGE = 'No test results yet. Run Cypress tests first (cypress open or cypress run).'
+import { REDACT_COMMANDS, NO_RESULTS_MESSAGE } from '../utils/constants.js'
+import { readLastRunData, type RunData } from '../utils/read-last-run.js'
 
 export async function getLastRun(projectRoot: string, failedOnly = false): Promise<string> {
   const result = await readLastRunData(projectRoot)
 
   if (!result.ok) {
     // Preserve the original no-results message for ENOENT
-    if (result.error.startsWith('No test results')) return NO_RESULTS_MESSAGE
+    if (result.error === NO_RESULTS_MESSAGE) return NO_RESULTS_MESSAGE
     return result.error
   }
 
@@ -17,29 +15,27 @@ export async function getLastRun(projectRoot: string, failedOnly = false): Promi
   // MCP10: redact sensitive command values from ALL tests.
   // Sensitive commands log actual values (passwords, PII, tokens).
   // Failed tests get a hint (command name) for debugging; passing tests get generic '[redacted]'.
-  type AnyRecord = Record<string, unknown>
-  type CommandRecord = { name: string; message: string }
+  type Spec = NonNullable<RunData['specs']>[number]
+  type Test = NonNullable<Spec['tests']>[number]
+  type Command = NonNullable<Test['commands']>[number]
 
-  function redactTestCommands(specs: AnyRecord[]): AnyRecord[] {
+  function redactTestCommands(specs: Spec[]): Spec[] {
     return specs.map((spec) => ({
       ...spec,
-      tests: ((spec.tests as AnyRecord[] | undefined) ?? []).map((test) => {
-        const cmds = (test.commands as CommandRecord[] | undefined) ?? []
-        return {
-          ...test,
-          commands: cmds.map((cmd) => {
-            if (REDACT_COMMANDS.has(cmd.name)) {
-              return {
-                ...cmd,
-                message: test.state === 'failed'
-                  ? `[redacted - ${cmd.name}]` // hint for debugging
-                  : '[redacted]',
-              }
+      tests: (spec.tests ?? []).map((test) => ({
+        ...test,
+        commands: (test.commands ?? []).map((cmd: Command) => {
+          if (REDACT_COMMANDS.has(cmd.name)) {
+            return {
+              ...cmd,
+              message: test.state === 'failed'
+                ? `[redacted - ${cmd.name}]` // hint for debugging
+                : '[redacted]',
             }
-            return cmd
-          }),
-        }
-      }),
+          }
+          return cmd
+        }),
+      })),
     }))
   }
 

@@ -1,18 +1,16 @@
 /// <reference types="cypress" />
-import { lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { constants, lstatSync, mkdirSync, openSync, closeSync, writeSync, renameSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
 import { redactSecrets } from '../utils/redact.js'
-import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH } from '../utils/constants.js'
+import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH, MAX_MESSAGE_LENGTH, MAX_URL_LENGTH } from '../utils/constants.js'
 import type { CommandEntry, NetworkError } from '../types.js'
 export { redactSecrets }
 
 // ─── Zod schema limits for mcpSaveTestLog task payload ──────────────────────
 const MAX_COMMAND_NAME_LENGTH = 100
-const MAX_COMMAND_MESSAGE_LENGTH = 1_000
 const MAX_HTTP_METHOD_LENGTH = 10
-const MAX_URL_LENGTH = 2_048
 const MIN_HTTP_STATUS = 100
 const MAX_HTTP_STATUS = 599
 const MAX_COMMANDS_PER_TEST = 200
@@ -23,7 +21,7 @@ const MAX_ERRORS_PER_TEST = 50
 // TypeScript interfaces provide zero runtime protection — any cy.task() caller can bypass them.
 const CommandEntrySchema = z.object({
   name: z.string().max(MAX_COMMAND_NAME_LENGTH),
-  message: z.string().max(MAX_COMMAND_MESSAGE_LENGTH),
+  message: z.string().max(MAX_MESSAGE_LENGTH),
 })
 
 const NetworkErrorSchema = z.object({
@@ -37,7 +35,7 @@ const TestLogPayloadSchema = z.object({
   commands: z.array(CommandEntrySchema).max(MAX_COMMANDS_PER_TEST),
   // H1: server-side size cap — support/index.ts caps at 100KB but task callers can bypass it
   domSnapshot: z.string().max(MAX_DOM_SNAPSHOT_LENGTH).nullable(),
-  consoleErrors: z.array(z.string().max(MAX_COMMAND_MESSAGE_LENGTH)).max(MAX_ERRORS_PER_TEST),
+  consoleErrors: z.array(z.string().max(MAX_MESSAGE_LENGTH)).max(MAX_ERRORS_PER_TEST),
   networkErrors: z.array(NetworkErrorSchema).max(MAX_ERRORS_PER_TEST),
 })
 
@@ -78,19 +76,28 @@ export interface McpPluginOptions {
 // Cap testLogs entries to prevent OOM via cy.task flood with unique testTitles
 const MAX_TEST_LOG_ENTRIES = 500
 
-// Fix #10: Refuse to write through symlinks — readers already check via realpath(),
-// but writers must also guard against symlink targets replacing snapshot or temp files.
+// Fix #10: Refuse to write through symlinks — O_NOFOLLOW atomically rejects symlinks,
+// closing the TOCTOU window that existed with the previous lstat + writeFileSync approach.
+const O_NOFOLLOW = (constants as Record<string, number>).O_NOFOLLOW ?? 0
+
 function safeWriteFileSync(filePath: string, content: string): void {
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | O_NOFOLLOW
+  let fd: number
   try {
-    const stat = lstatSync(filePath)
-    if (stat.isSymbolicLink()) {
+    fd = openSync(filePath, flags, 0o644)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ELOOP') {
+      // O_NOFOLLOW rejected a symlink — this is expected and safe
       process.stderr.write(`[cypress-mcp] Refusing to write to symlink: ${filePath}\n`)
       return
     }
-  } catch {
-    // ENOENT = file doesn't exist yet, safe to create
+    throw err
   }
-  writeFileSync(filePath, content, 'utf-8')
+  try {
+    writeSync(fd, content)
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function buildSpecResult(
@@ -109,13 +116,14 @@ function buildSpecResult(
       // L8: catch snapshot write failures — disk full, permissions, etc.
       // Degrade gracefully: spec result is still written with domSnapshotPath: null
       try {
-        const specDir = path.join(snapshotsDir, specSlug(spec.relative))
+        const slug = specSlug(spec.relative)
+        const specDir = path.join(snapshotsDir, slug)
         mkdirSync(specDir, { recursive: true })
         const filename = testFilename(titlePath)
         const snapshotFile = path.join(specDir, filename)
         safeWriteFileSync(snapshotFile, logEntry.domSnapshot)
         // Store as relative path from .cypress-mcp/ directory
-        domSnapshotPath = path.join(SNAPSHOTS_SUBDIR, specSlug(spec.relative), filename)
+        domSnapshotPath = path.join(SNAPSHOTS_SUBDIR, slug, filename)
       } catch (err) {
         process.stderr.write(
           `[cypress-mcp] Failed to write DOM snapshot for "${titlePath}": ${err instanceof Error ? err.message : String(err)}\n`,

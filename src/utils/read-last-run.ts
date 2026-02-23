@@ -1,7 +1,7 @@
-import { readFile, stat, realpath } from 'node:fs/promises'
-import path from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
 import { z } from 'zod'
-import { LAST_RUN_FILE, MAX_LAST_RUN_BYTES } from './constants.js'
+import { LAST_RUN_FILE, MAX_LAST_RUN_BYTES, NO_RESULTS_MESSAGE } from './constants.js'
+import { resolveSecurePath, PathTraversalError } from './path-security.js'
 
 // H3: runtime schema — superset of fields needed by get-last-run and query-dom.
 // Using .passthrough() at each level preserves extra fields in the returned JSON.
@@ -19,6 +19,7 @@ export const RunDataSchema = z
                     title: z.string(),
                     state: z.string(),
                     domSnapshotPath: z.string().nullable().optional(),
+                    commands: z.array(z.object({ name: z.string(), message: z.string() }).passthrough()).optional(),
                   })
                   .passthrough(),
               )
@@ -34,28 +35,23 @@ export type RunData = z.infer<typeof RunDataSchema>
 
 /**
  * Read, validate, and return the last-run.json data.
- * Performs: realpath → containment check → size check → readFile → JSON.parse → Zod validate.
+ * Performs: resolveSecurePath (containment + symlink) → size check → readFile → JSON.parse → Zod validate.
  */
 export async function readLastRunData(
   projectRoot: string,
 ): Promise<{ ok: true; data: RunData } | { ok: false; error: string }> {
-  const normalizedRoot = path.resolve(projectRoot)
-  const filePath = path.join(normalizedRoot, LAST_RUN_FILE)
-
-  // M9: resolve symlinks — readFile follows them silently, which enables symlink attacks
+  // Security: containment check + symlink resolution (single source of truth)
   let realFilePath: string
   try {
-    realFilePath = await realpath(filePath)
+    realFilePath = await resolveSecurePath(projectRoot, LAST_RUN_FILE)
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') {
-      return { ok: false, error: 'No test results yet. Run Cypress tests first (cypress open or cypress run).' }
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { ok: false, error: NO_RESULTS_MESSAGE }
+    }
+    if (err instanceof PathTraversalError) {
+      return { ok: false, error: 'Error: last-run.json is a symlink outside the project root.' }
     }
     throw err
-  }
-
-  if (!realFilePath.startsWith(normalizedRoot + path.sep)) {
-    return { ok: false, error: 'Error: last-run.json is a symlink outside the project root.' }
   }
 
   // H2: size check before allocating file contents + JSON parse buffer

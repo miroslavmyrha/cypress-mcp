@@ -19,8 +19,17 @@ export const DEFAULT_SPEC_PATTERNS = [
   '**/*.spec.ts', '**/*.spec.js', '**/*.spec.tsx', '**/*.spec.jsx',
 ]
 
+// ─── Shared messages ────────────────────────────────────────────────────────
+export const NO_RESULTS_MESSAGE = 'No test results yet. Run Cypress tests first (cypress open or cypress run).'
+
+// ─── Valid transports ───────────────────────────────────────────────────────
+export const VALID_TRANSPORTS = ['stdio', 'http'] as const
+export type TransportType = (typeof VALID_TRANSPORTS)[number]
+
 // ─── Shared validation limits ────────────────────────────────────────────────
-// Used across arg-schemas.ts and plugin/index.ts Zod schemas
+// Used across arg-schemas.ts, plugin/index.ts, and support/index.ts Zod schemas
 export const MAX_TEST_TITLE_LENGTH = 500
 export const MAX_SPEC_PATH_LENGTH = 2_048
 export const MAX_SELECTOR_LENGTH = 512
+export const MAX_MESSAGE_LENGTH = 1_000
+export const MAX_URL_LENGTH = 2_048

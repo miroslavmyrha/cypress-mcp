@@ -3,6 +3,16 @@ import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { MAX_TEST_TITLE_LENGTH, MAX_SPEC_PATH_LENGTH, MAX_SELECTOR_LENGTH } from './constants.js'
 
+/** Zod string refinement that rejects absolute paths and '..' traversal */
+function safeRelativePath(description: string) {
+  return z
+    .string()
+    .min(1, 'path is required')
+    .describe(description)
+    .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
+    .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' })
+}
+
 // M5: validate list_specs pattern to block directory traversal via glob
 export const ListSpecsArgs = z.object({
   pattern: z
@@ -16,12 +26,7 @@ export const ListSpecsArgs = z.object({
 })
 
 export const ReadSpecArgs = z.object({
-  path: z
-    .string()
-    .min(1, 'path is required')
-    .describe('Relative path to the spec file (from project root)')
-    .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
-    .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' }),
+  path: safeRelativePath('Relative path to the spec file (from project root)'),
 })
 
 export const GetLastRunArgs = z.object({
@@ -49,15 +54,9 @@ export const QueryDomArgs = z.object({
 })
 
 const ALLOWED_BROWSERS = ['chrome', 'firefox', 'electron', 'edge'] as const
-export type CypressBrowser = (typeof ALLOWED_BROWSERS)[number]
 
 export const RunSpecArgs = z.object({
-  spec: z
-    .string()
-    .min(1, 'spec is required')
-    .describe('Relative path to the spec file within the project (e.g. "cypress/e2e/login.cy.ts")')
-    .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
-    .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' }),
+  spec: safeRelativePath('Relative path to the spec file within the project (e.g. "cypress/e2e/login.cy.ts")'),
   headed: z
     .boolean()
     .describe('Run with a visible browser window instead of headless (default: false)')

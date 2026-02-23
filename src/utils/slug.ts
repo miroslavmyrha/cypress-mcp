@@ -4,6 +4,11 @@ const MAX_SPEC_SLUG_LENGTH = 200
 const MAX_TEST_SLUG_LENGTH = 60
 const HASH_SUFFIX_LENGTH = 8
 
+/** NFKC normalization + control char stripping — shared by specSlug and testFilename */
+function normalizeForFilename(input: string): string {
+  return input.normalize('NFKC').replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+}
+
 /**
  * Converts a spec relative path to a safe directory name.
  * e.g. "cypress/e2e/auth/login.cy.ts" → "cypress-e2e-auth-login-cy-ts"
@@ -11,9 +16,7 @@ const HASH_SUFFIX_LENGTH = 8
  * L6: control char stripping prevents null-byte DoS on fs calls
  */
 export function specSlug(relative: string): string {
-  return relative
-    .normalize('NFKC')
-    .replace(/[\x00-\x1f\x7f-\x9f]/g, '') // L6: strip C0/C1 control chars incl. null byte
+  return normalizeForFilename(relative)
     .replace(/[/\\]/g, '-')
     .replace(/[^a-z0-9-]/gi, '-')
     .replace(/-+/g, '-')
@@ -29,7 +32,7 @@ export function specSlug(relative: string): string {
  * L6: control char stripping prevents null-byte DoS on fs calls.
  */
 export function testFilename(title: string): string {
-  const normalized = title.normalize('NFKC').replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+  const normalized = normalizeForFilename(title)
   const hash = createHash('sha256').update(normalized).digest('hex').slice(0, HASH_SUFFIX_LENGTH)
   const safe = normalized
     .toLowerCase()

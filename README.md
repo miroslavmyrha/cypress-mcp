@@ -108,7 +108,9 @@ MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx cypress-mcp --project /path/to/projec
             { "name": "visit", "message": "/login" },
             { "name": "get", "message": "#email" },
             { "name": "type", "message": "test@example.com" }
-          ]
+          ],
+          "consoleErrors": [],
+          "networkErrors": []
         },
         {
           "title": "Login > should show error on invalid password",
@@ -116,7 +118,9 @@ MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx cypress-mcp --project /path/to/projec
           "duration": 800,
           "error": "Timed out retrying: Expected to find element: .error-message",
           "domSnapshotPath": "snapshots/cypress-e2e-login-cy-ts/login--should-show-error-a1b2c3.html",
-          "commands": [...]
+          "commands": [...],
+          "consoleErrors": ["Uncaught TypeError: Cannot read property 'x' of null"],
+          "networkErrors": [{ "method": "POST", "url": "/api/login", "status": 500 }]
         }
       ]
     },

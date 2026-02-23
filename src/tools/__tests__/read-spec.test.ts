@@ -23,18 +23,16 @@ beforeEach(() => {
 describe('readSpec', () => {
   it('throws on path traversal outside project root', async () => {
     await expect(readSpec(PROJECT_ROOT, '../../../etc/passwd')).rejects.toThrow(
-      'Path traversal detected',
+      'Path must be within the project root',
     )
   })
 
   it('throws when symlink resolves outside project root', async () => {
-    const symlinkPath = path.resolve(PROJECT_ROOT, 'cypress/e2e/evil-link.cy.ts')
     mockRealpath.mockResolvedValue('/etc/passwd' as never)
 
     await expect(readSpec(PROJECT_ROOT, 'cypress/e2e/evil-link.cy.ts')).rejects.toThrow(
-      'Path traversal detected',
+      'Path escapes project root via symlink',
     )
-    expect(mockRealpath).toHaveBeenCalledWith(symlinkPath)
   })
 
   it('throws when file extension is not an allowed spec extension', async () => {

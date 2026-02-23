@@ -18,8 +18,8 @@ beforeEach(() => {
 
 describe('getScreenshot', () => {
   it('throws when screenshot path is outside the project root', async () => {
-    await expect(getScreenshot(PROJECT_ROOT, '/etc/shadow')).rejects.toThrow(
-      'Screenshot path must be within the project root',
+    await expect(getScreenshot(PROJECT_ROOT, '/etc/shadow.png')).rejects.toThrow(
+      'Path must be within the project root',
     )
   })
 
@@ -28,7 +28,7 @@ describe('getScreenshot', () => {
 
     await expect(
       getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/cypress/screenshots/evil-link.png`),
-    ).rejects.toThrow('Screenshot path must be within the project root')
+    ).rejects.toThrow('Path escapes project root via symlink')
   })
 
   it('throws when file extension is not an allowed image type', async () => {
@@ -75,7 +75,7 @@ describe('getScreenshot', () => {
     // A path that looks internal but resolves outside
     await expect(
       getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/../outside/secret.png`),
-    ).rejects.toThrow('Screenshot path must be within the project root')
+    ).rejects.toThrow('Path must be within the project root')
   })
 
   it.each(['.png', '.jpg', '.jpeg'])('allows %s extension', async (ext) => {

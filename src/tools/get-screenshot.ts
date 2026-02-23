@@ -1,5 +1,6 @@
-import { realpath, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import path from 'node:path'
+import { resolveSecurePath } from '../utils/path-security.js'
 
 export interface ScreenshotInfo {
   path: string
@@ -11,31 +12,20 @@ const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg']
 
 // H5: projectRoot is required — screenshots must be within the project
 export async function getScreenshot(projectRoot: string, screenshotPath: string): Promise<ScreenshotInfo> {
-  // Security: restrict to paths within the project root to prevent filesystem oracle attacks
-  // Resolve relative paths against projectRoot (not CWD); absolute paths are used as-is
-  const resolved = path.resolve(projectRoot, screenshotPath)
-  const rootPrefix = path.resolve(projectRoot) + path.sep
-  if (!resolved.startsWith(rootPrefix)) {
-    throw new Error('Screenshot path must be within the project root')
-  }
-
   // Security: only allow known image file extensions
+  const resolved = path.resolve(path.resolve(projectRoot), screenshotPath)
   const ext = path.extname(resolved).toLowerCase()
   if (!ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
     throw new Error(`File extension not allowed. Only image files are permitted: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}`)
   }
 
-  // Security: resolve symlinks and re-check containment to prevent symlink escape
-  // Use the real (symlink-resolved) path for subsequent stat to close the TOCTOU window
+  // Security: containment check + symlink resolution (single source of truth)
+  // Use the real (symlink-resolved) path for stat to close TOCTOU window
   let statPath = resolved
   try {
-    const real = await realpath(resolved)
-    if (!real.startsWith(rootPrefix)) {
-      throw new Error('Screenshot path must be within the project root')
-    }
-    statPath = real
+    statPath = await resolveSecurePath(projectRoot, screenshotPath)
   } catch (err) {
-    // If file doesn't exist, realpath will throw ENOENT — fall through to stat below
+    // If file doesn't exist, realpath throws ENOENT — fall through to stat below
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw err
     }

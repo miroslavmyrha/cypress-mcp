@@ -4,11 +4,10 @@ import { EventEmitter } from 'node:events'
 vi.mock('node:fs/promises')
 vi.mock('node:child_process')
 
-import { lstat, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { runSpec, killAllActiveRuns } from '../run-spec.js'
 
-const mockLstat = vi.mocked(lstat)
 const mockRealpath = vi.mocked(realpath)
 const mockSpawn = vi.mocked(spawn)
 
@@ -48,28 +47,28 @@ describe('runSpec', () => {
     )
   })
 
-  it('rejects path traversal outside project root (Layer 2)', async () => {
+  it('rejects path traversal outside project root (Layer 3+4)', async () => {
     await expect(runSpec(PROJECT_ROOT, '../../etc/passwd.cy.ts')).rejects.toThrow(
       'within the project root',
     )
   })
 
-  it('rejects files with non-spec extensions (Layer 3)', async () => {
+  it('rejects files with non-spec extensions (Layer 2)', async () => {
     await expect(runSpec(PROJECT_ROOT, 'cypress/e2e/login.ts')).rejects.toThrow(
       'spec must match',
     )
   })
 
-  it('rejects symlink spec files whose target escapes project root (Layer 4)', async () => {
+  it('rejects symlink spec files whose target escapes project root (Layer 3+4)', async () => {
     // realpath resolves the symlink to a path outside projectRoot
     mockRealpath.mockResolvedValue('/outside/project/evil.cy.ts' as never)
 
     await expect(runSpec(PROJECT_ROOT, 'cypress/e2e/login.cy.ts')).rejects.toThrow(
-      'symlink target escapes boundary',
+      'Path escapes project root via symlink',
     )
   })
 
-  it('throws friendly error when spec file does not exist (ENOENT, Layer 4)', async () => {
+  it('throws friendly error when spec file does not exist (ENOENT, Layer 3+4)', async () => {
     const err = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     mockRealpath.mockRejectedValue(err as never)
 

@@ -4,7 +4,7 @@
 //   import 'cypress-mcp/support'
 import { safeStringify } from '../utils/safe-stringify.js'
 import { redactSecrets } from '../utils/redact.js'
-import { REDACT_COMMANDS } from '../utils/constants.js'
+import { REDACT_COMMANDS, MAX_MESSAGE_LENGTH, MAX_URL_LENGTH } from '../utils/constants.js'
 import type { CommandEntry, NetworkError } from '../types.js'
 
 // Commands that add noise without useful debugging info
@@ -16,9 +16,7 @@ const DOM_SNAPSHOT_MAX_BYTES = 100_000
 // Cap error arrays to prevent memory DoS from floods of errors in the app under test
 const MAX_CONSOLE_ERRORS = 20
 const MAX_NETWORK_ERRORS = 20
-const MAX_ERROR_MESSAGE_LENGTH = 500
 const MAX_COMMAND_LOG = 500
-const MAX_URL_LENGTH = 2_000 // L5: cap network error URLs
 
 // Finding #4: Sanitize DOM snapshots to remove passwords, tokens, CSRF, and script contents
 function sanitizeDom(html: string): string {
@@ -66,7 +64,7 @@ Cypress.on('log:added', (log: { name: string; message?: string }) => {
       name: log.name,
       message: REDACT_COMMANDS.has(log.name)
         ? '[redacted]'
-        : (log.message ?? '').slice(0, MAX_ERROR_MESSAGE_LENGTH),
+        : (log.message ?? '').slice(0, MAX_MESSAGE_LENGTH),
     })
   }
 })
@@ -79,9 +77,9 @@ Cypress.on('window:before:load', (win) => {
       // M7: truncate each arg individually to bound peak memory before joining
       const msg = redactSecrets(
         args
-          .map((a) => (typeof a === 'string' ? a : safeStringify(a)).slice(0, MAX_ERROR_MESSAGE_LENGTH))
+          .map((a) => (typeof a === 'string' ? a : safeStringify(a)).slice(0, MAX_MESSAGE_LENGTH))
           .join(' ')
-          .slice(0, MAX_ERROR_MESSAGE_LENGTH)
+          .slice(0, MAX_MESSAGE_LENGTH)
       )
       consoleErrors.push(msg)
     }
@@ -95,7 +93,7 @@ Cypress.on('window:before:load', (win) => {
     if (consoleErrors.length < MAX_CONSOLE_ERRORS) {
       const reason = event.reason instanceof Error ? event.reason.message : String(event.reason)
       const msg = redactSecrets(`Unhandled rejection: ${reason}`)
-      consoleErrors.push(msg.slice(0, MAX_ERROR_MESSAGE_LENGTH))
+      consoleErrors.push(msg.slice(0, MAX_MESSAGE_LENGTH))
     }
   })
 })

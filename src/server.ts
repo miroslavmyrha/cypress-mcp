@@ -41,6 +41,17 @@ export interface ServerOptions {
   projectRoot: string
   transport: 'stdio' | 'http'
   port: number
+  version: string
+}
+
+/** Strip absolute paths from error messages to avoid leaking internal filesystem structure */
+function sanitizePath(message: string): string {
+  return message.replace(/\/(?:[\w.@-]+\/)+[\w.@-]+/g, '[path]')
+}
+
+function sendJsonError(res: ServerResponse, statusCode: number, message: string): void {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ error: message }))
 }
 
 function registerShutdownHandlers(cleanup?: () => void): void {
@@ -111,9 +122,9 @@ const TOOL_DEFINITIONS = [
 ]
 
 /** Create a configured MCP Server instance with all tool handlers registered */
-function createMcpServer(projectRoot: string): Server {
+function createMcpServer(projectRoot: string, version: string): Server {
   const server = new Server(
-    { name: 'cypress-mcp', version: '0.1.0' },
+    { name: 'cypress-mcp', version },
     { capabilities: { tools: {} } },
   )
 
@@ -167,7 +178,9 @@ function createMcpServer(projectRoot: string): Server {
           // MCP08: log spec execution separately — this is the highest-risk operation
           auditLog('spec_execution_started', { spec, headed: headed ?? false, browser: browser ?? 'default' })
           const result = await runSpec(projectRoot, spec, { headed, browser })
-          auditLog('spec_execution_completed', { spec, success: result.includes('"success": true') })
+          let success = false
+          try { success = (JSON.parse(result) as { success?: boolean }).success === true } catch { /* non-JSON — treat as failure */ }
+          auditLog('spec_execution_completed', { spec, success })
           // MCP06: wrap in untrusted envelope — the "output" field contains Cypress stdout/stderr
           // which includes application console.log, page titles, error messages, etc.
           return { content: [{ type: 'text' as const, text: wrapUntrusted(result) }] }
@@ -180,10 +193,7 @@ function createMcpServer(projectRoot: string): Server {
       const message = err instanceof Error ? err.message : String(err)
       // MCP08: log errors — helps detect path traversal attempts, auth issues, and misuse
       auditLog('tool_error', { tool: name, error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
-      // L2: strip absolute paths from error messages to avoid leaking internal filesystem structure
-      // Match paths like /home/user/project/file.ts — require at least one directory separator
-      const sanitized = message.replace(/\/(?:[\w.@-]+\/)+[\w.@-]+/g, '[path]')
-      return { content: [{ type: 'text' as const, text: `Error: ${sanitized}` }], isError: true }
+      return { content: [{ type: 'text' as const, text: `Error: ${sanitizePath(message)}` }], isError: true }
     }
   })
 
@@ -191,11 +201,11 @@ function createMcpServer(projectRoot: string): Server {
 }
 
 export function startServer(options: ServerOptions): void {
-  const { projectRoot, transport, port } = options
+  const { projectRoot, transport, port, version } = options
 
   if (transport === 'stdio') {
     // stdio transport — for Claude Desktop, Claude Code, mcp-cli
-    const server = createMcpServer(projectRoot)
+    const server = createMcpServer(projectRoot, version)
     const stdioTransport = new StdioServerTransport()
     server.connect(stdioTransport).catch((err) => {
       process.stderr.write(
@@ -243,36 +253,26 @@ export function startServer(options: ServerOptions): void {
 
       // H9: reject oversized requests — require Content-Length to prevent unbounded streaming
       if (req.method === 'POST' && req.headers['content-length'] === undefined) {
-        res.writeHead(411, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Content-Length required' }))
-        return
+        return sendJsonError(res, 411, 'Content-Length required')
       }
       const contentLength = Number(req.headers['content-length'] ?? '0')
       if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_REQUEST_BODY_BYTES) {
-        res.writeHead(413, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Request body too large' }))
-        return
+        return sendJsonError(res, 413, 'Request body too large')
       }
 
       // H10b: Host header validation — defence-in-depth against DNS rebinding for non-browser clients
       const requestHost = req.headers['host'] ?? ''
       if (!allowedHosts.has(requestHost)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Invalid Host header' }))
-        return
+        return sendJsonError(res, 400, 'Invalid Host header')
       }
 
       // H10: reject cross-origin requests to prevent DNS rebinding attacks
       if (req.headers['origin']) {
-        res.writeHead(403, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Cross-origin requests not allowed' }))
-        return
+        return sendJsonError(res, 403, 'Cross-origin requests not allowed')
       }
 
       if (req.url !== '/mcp') {
-        res.writeHead(404, { 'Content-Type': 'text/plain' })
-        res.end('Not found. Use POST /mcp for tool calls.\n')
-        return
+        return sendJsonError(res, 404, 'Not found. Use POST /mcp for tool calls.')
       }
 
       // H4: bearer token auth — reject unauthenticated requests before touching MCP transport
@@ -289,9 +289,7 @@ export function startServer(options: ServerOptions): void {
           ip: req.socket.remoteAddress ?? 'unknown',
           hasHeader: authHeader != null,
         })
-        res.writeHead(401, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Unauthorized' }))
-        return
+        return sendJsonError(res, 401, 'Unauthorized')
       }
 
       // H9b: enforce Content-Length on the body stream — the header is declared-only,
@@ -308,7 +306,7 @@ export function startServer(options: ServerOptions): void {
       // H1: create a fresh Server + transport per request — SDK 1.26.0 stateless mode
       // requires a new Server.connect() per request; reusing the same Server instance
       // causes "Already connected to a transport" on concurrent requests.
-      const perRequestServer = createMcpServer(projectRoot)
+      const perRequestServer = createMcpServer(projectRoot, version)
       const perRequestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
       try {
         await perRequestServer.connect(perRequestTransport)
@@ -316,19 +314,13 @@ export function startServer(options: ServerOptions): void {
           // Log the real error for debugging, but never expose internals to the client
           const message = err instanceof Error ? err.message : String(err)
           auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'Internal server error' }))
-          }
+          if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
         })
       } catch (err) {
         // connect() or synchronous handleRequest failure — send 500 so the client isn't left hanging
         const message = err instanceof Error ? err.message : String(err)
         auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Internal server error' }))
-        }
+        if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
       } finally {
         // Cleanup: close transport and server to release resources.
         // Registered in finally to prevent leak if connect() or handleRequest() throws.
