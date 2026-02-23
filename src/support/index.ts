@@ -2,27 +2,10 @@
 // cypress-mcp support — browser side
 // Import in cypress/support/e2e.ts:
 //   import 'cypress-mcp/support'
-// M7: safe JSON serialization — inlined to avoid fragile cross-directory import
-// (../src/utils/safe-stringify.js only works through tsup bundler, not ts-node)
-// Handles Symbol/Function/undefined (JSON.stringify returns undefined, not a string)
-function safeStringify(a: unknown): string {
-  try {
-    return JSON.stringify(a) ?? '[Unserializable]'
-  } catch {
-    return '[Unserializable]'
-  }
-}
-
-interface CommandEntry {
-  name: string
-  message: string
-}
-
-interface NetworkError {
-  method: string
-  url: string
-  status: number
-}
+import { safeStringify } from '../utils/safe-stringify.js'
+import { redactSecrets } from '../utils/redact.js'
+import { REDACT_COMMANDS } from '../utils/constants.js'
+import type { CommandEntry, NetworkError } from '../types.js'
 
 // Commands that add noise without useful debugging info
 const SKIP_COMMANDS = new Set(['server', 'route', 'spy', 'stub', 'log', 'wrap', 'window'])
@@ -36,9 +19,6 @@ const MAX_NETWORK_ERRORS = 20
 const MAX_ERROR_MESSAGE_LENGTH = 500
 const MAX_COMMAND_LOG = 500
 const MAX_URL_LENGTH = 2_000 // L5: cap network error URLs
-
-// Finding #16: Redact sensitive commands at capture time, not just read time
-const REDACT_IN_LOG = new Set(['type', 'clear', 'request', 'setCookie', 'session', 'invoke', 'its'])
 
 // Finding #4: Sanitize DOM snapshots to remove passwords, tokens, CSRF, and script contents
 function sanitizeDom(html: string): string {
@@ -84,26 +64,6 @@ function sanitizeUrl(url: string): string {
   })
 }
 
-// Finding #13: Redact JWTs, connection strings, and other secrets from log messages
-// Canonical source: src/utils/redact.ts — inlined due to ts-node constraint
-// Fix #4: Relaxed JWT regex — + instead of {10,}, optional signature for alg:none tokens
-const JWT_PATTERN = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
-// Fix #2: JSON-aware pattern catches "password":"secret123" format (must run before general pattern)
-const SECRET_JSON_PATTERN = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{3,}"/gi
-const SECRET_PATTERN = /(password|secret|token|key|auth|bearer|passwd|credential)\s*[=:]\s*["']?[^\s"',}\]]{3,}/gi
-
-const BEARER_HEADER_PATTERN = /\bBearer\s+[A-Za-z0-9_\-/.+=]{10,}/gi
-const CONNECTION_STRING_PATTERN = /(?:postgres|mysql|mongo(?:db(?:\+srv)?)?|rediss?|amqps?|mssql)(?:ql)?:\/\/[^\s]+/gi
-
-function redactSecrets(msg: string): string {
-  return msg
-    .replace(JWT_PATTERN, '[jwt-redacted]')
-    .replace(SECRET_JSON_PATTERN, '"$1":"[redacted]"')
-    .replace(SECRET_PATTERN, '$1=[redacted]')
-    .replace(BEARER_HEADER_PATTERN, 'Bearer [redacted]')
-    .replace(CONNECTION_STRING_PATTERN, '[connection-string-redacted]')
-}
-
 const commandLog: CommandEntry[] = []
 let consoleErrors: string[] = []
 let networkErrors: NetworkError[] = []
@@ -113,7 +73,7 @@ Cypress.on('log:added', (log: { name: string; message?: string }) => {
   if (!SKIP_COMMANDS.has(log.name) && commandLog.length < MAX_COMMAND_LOG) {
     commandLog.push({
       name: log.name,
-      message: REDACT_IN_LOG.has(log.name)
+      message: REDACT_COMMANDS.has(log.name)
         ? '[redacted]'
         : (log.message ?? '').slice(0, MAX_ERROR_MESSAGE_LENGTH),
     })

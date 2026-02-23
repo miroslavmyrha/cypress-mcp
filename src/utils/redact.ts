@@ -1,6 +1,5 @@
 // Canonical source for secret redaction patterns.
-// Used by src/tools/run-spec.ts and src/plugin/index.ts.
-// support/index.ts inlines a copy due to ts-node constraints.
+// Used by src/tools/run-spec.ts, src/plugin/index.ts, and src/support/index.ts.
 
 // Fix #4: Relaxed — optional signature segment catches unsigned JWTs and short segments
 const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g

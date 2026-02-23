@@ -16,7 +16,7 @@ export default defineConfig([
     entry: {
       server: 'src/server.ts',
       'plugin/index': 'src/plugin/index.ts',
-      'support/index': 'support/index.ts',
+      'support/index': 'src/support/index.ts',
     },
     format: ['esm'],
     target: 'node18',

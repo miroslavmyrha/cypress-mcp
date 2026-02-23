@@ -4,20 +4,9 @@ import path from 'node:path'
 import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
 import { redactSecrets } from '../utils/redact.js'
+import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR } from '../utils/constants.js'
+import type { CommandEntry, NetworkError } from '../types.js'
 export { redactSecrets }
-
-// CypressCommandLine and Cypress are global namespaces from the cypress types reference above
-
-interface CommandEntry {
-  name: string
-  message: string
-}
-
-interface NetworkError {
-  method: string
-  url: string
-  status: number
-}
 
 // H1: Zod schema for runtime validation of mcpSaveTestLog task payload.
 // TypeScript interfaces provide zero runtime protection — any cy.task() caller can bypass them.
@@ -77,9 +66,6 @@ export interface McpPluginOptions {
 
 // Cap testLogs entries to prevent OOM via cy.task flood with unique testTitles
 const MAX_TEST_LOG_ENTRIES = 500
-
-const OUTPUT_DIR_NAME = '.cypress-mcp'
-const SNAPSHOTS_SUBDIR = 'snapshots'
 
 // Fix #10: Refuse to write through symlinks — readers already check via realpath(),
 // but writers must also guard against symlink targets replacing snapshot or temp files.

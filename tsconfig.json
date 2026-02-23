@@ -14,6 +14,6 @@
     "sourceMap": true,
     "types": ["node", "cypress"]
   },
-  "include": ["src/**/*", "support/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

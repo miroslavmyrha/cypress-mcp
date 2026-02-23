@@ -35,6 +35,16 @@ export interface ServerOptions {
   port: number
 }
 
+function registerShutdownHandlers(cleanup?: () => void): void {
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.once(signal, () => {
+      killAllActiveRuns()
+      cleanup?.()
+      process.exit(0)
+    })
+  }
+}
+
 // MCP tool definitions — shared between all Server instances
 const TOOL_DEFINITIONS = [
       {
@@ -255,6 +265,9 @@ export function startServer(options: ServerOptions): void {
       )
       process.exit(1)
     })
+
+    // Graceful shutdown — kill active Cypress runs to prevent orphaned browsers
+    registerShutdownHandlers()
   } else {
     // HTTP transport — for Ollama via mcphost or custom bridges
     // H4: generate a per-process bearer token so unauthenticated network clients cannot call tools.
@@ -382,22 +395,6 @@ export function startServer(options: ServerOptions): void {
     })
 
     // H11: graceful shutdown — kill active Cypress runs and close HTTP server
-    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-      process.once(signal, () => {
-        killAllActiveRuns()
-        httpServer.close()
-        process.exit(0)
-      })
-    }
-  }
-
-  // Graceful shutdown for both transports — kill active Cypress runs to prevent orphaned browsers
-  if (transport === 'stdio') {
-    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-      process.once(signal, () => {
-        killAllActiveRuns()
-        process.exit(0)
-      })
-    }
+    registerShutdownHandlers(() => httpServer.close())
   }
 }

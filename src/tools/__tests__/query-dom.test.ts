@@ -62,14 +62,14 @@ describe('queryDom', () => {
     mockRealpath.mockRejectedValue(err as never)
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
-    expect(result).toMatch(/No test results found/)
+    expect(result).toMatch(/No test results yet/)
   })
 
   it('rejects symlink on last-run.json that resolves outside project root (F4)', async () => {
     mockRealpath.mockResolvedValueOnce('/etc/evil/last-run.json' as never)
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
-    expect(result).toMatch(/symlink outside the project directory/)
+    expect(result).toMatch(/symlink outside the project root/)
   })
 
   it('rejects last-run.json exceeding 50 MB size limit (F7)', async () => {
@@ -77,7 +77,7 @@ describe('queryDom', () => {
     mockStat.mockResolvedValueOnce({ size: 51 * 1024 * 1024 } as never) // 51 MB
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
-    expect(result).toMatch(/last-run.json exceeds size limit/)
+    expect(result).toMatch(/too large/)
     // readFile should NOT be called
     expect(mockReadFile).not.toHaveBeenCalled()
   })
@@ -89,7 +89,7 @@ describe('queryDom', () => {
     mockRealpath.mockResolvedValueOnce(runFile as never)
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
-      JSON.stringify({ specs: [{ spec: SPEC, tests: [{ title: TEST_TITLE, domSnapshotPath: null }] }] }) as never,
+      JSON.stringify({ specs: [{ spec: SPEC, tests: [{ title: TEST_TITLE, state: 'failed', domSnapshotPath: null }] }] }) as never,
     )
 
     // Should NOT return symlink error — the normalized root matches
@@ -145,7 +145,7 @@ describe('queryDom', () => {
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
       JSON.stringify({
-        specs: [{ spec: SPEC, tests: [{ title: 'other test', domSnapshotPath: null }] }],
+        specs: [{ spec: SPEC, tests: [{ title: 'other test', state: 'passed', domSnapshotPath: null }] }],
       }) as never,
     )
 

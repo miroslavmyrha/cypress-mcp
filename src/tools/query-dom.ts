@@ -1,45 +1,18 @@
 import { readFile, stat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { parse, type HTMLElement } from 'node-html-parser'
-import { z } from 'zod'
+import { SNAPSHOTS_SUBDIR } from '../utils/constants.js'
+import { readLastRunData } from '../utils/read-last-run.js'
 
-const LAST_RUN_FILE = '.cypress-mcp/last-run.json'
-const SNAPSHOTS_SUBDIR = 'snapshots'
 const MAX_QUERY_RESULTS = 5
 const MAX_ELEMENT_BYTES = 5_000
 const MAX_ELEMENT_LABEL_CHARS = 200 // M6: prevent huge class attribute from blowing up breadcrumb
 const MAX_BREADCRUMB_CHARS = 500   // M6: cap total breadcrumb output
 const MAX_BREADCRUMB_DEPTH = 50    // M6: limit ancestor traversal depth
 const MAX_SNAPSHOT_FILE_BYTES = 2 * 1_024 * 1_024 // M6: 2 MB HTML cap (prevents O(N²) :nth-child DoS)
-const MAX_LAST_RUN_BYTES = 50 * 1_024 * 1_024 // F7: 50 MB — same cap as get-last-run.ts
 const MAX_SELECTOR_LENGTH = 512    // L4: block excessively long selectors
 const DANGEROUS_TAGS = 'script, style, noscript' // H8: tags to strip before querying
 const BLOCKED_PSEUDOS = [':has(', ':contains(', ':icontains('] // F11: DoS / text-probing vectors
-
-// H3: runtime schema — only validate fields we access, preserve others with passthrough()
-const RunDataSchema = z
-  .object({
-    specs: z
-      .array(
-        z
-          .object({
-            spec: z.string(),
-            tests: z
-              .array(
-                z
-                  .object({
-                    title: z.string(),
-                    domSnapshotPath: z.string().nullable().optional(),
-                  })
-                  .passthrough(),
-              )
-              .optional(),
-          })
-          .passthrough(),
-      )
-      .optional(),
-  })
-  .passthrough()
 
 function elementLabel(el: HTMLElement): string {
   const tag = el.tagName?.toLowerCase() ?? ''
@@ -83,43 +56,13 @@ export async function queryDom(
 
   // F6: normalize projectRoot to prevent containment-check bypass with trailing slashes or relative segments
   const normalizedRoot = path.resolve(projectRoot)
-  const runFile = path.join(normalizedRoot, LAST_RUN_FILE)
   const mcpDir = path.join(normalizedRoot, '.cypress-mcp')
   const snapshotsDir = path.join(mcpDir, SNAPSHOTS_SUBDIR)
 
-  // M9: resolve symlinks on last-run.json before reading
-  let realRunFile: string
-  try {
-    realRunFile = await realpath(runFile)
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') return 'No test results found. Run Cypress tests first.'
-    throw err
-  }
+  const result = await readLastRunData(projectRoot)
+  if (!result.ok) return result.error
 
-  // F4: re-validate that realpath of last-run.json stays within project root
-  if (!realRunFile.startsWith(normalizedRoot + path.sep)) {
-    return 'Error: last-run.json is a symlink outside the project directory'
-  }
-
-  // F7: size check before reading — same 50 MB cap as get-last-run.ts
-  const runFileStat = await stat(realRunFile)
-  if (runFileStat.size > MAX_LAST_RUN_BYTES) {
-    return 'Error: last-run.json exceeds size limit'
-  }
-
-  // H3: validate structure at runtime
-  let data: z.infer<typeof RunDataSchema>
-  try {
-    const content = await readFile(realRunFile, 'utf-8')
-    const schemaResult = RunDataSchema.safeParse(JSON.parse(content))
-    if (!schemaResult.success) {
-      return 'Error: last-run.json has unexpected structure.'
-    }
-    data = schemaResult.data
-  } catch {
-    return 'Error: failed to read or parse last-run.json.'
-  }
+  const data = result.data
 
   // Find the test entry — model provides spec + testTitle, never a raw path
   const specEntry = data.specs?.find((s) => s.spec === spec)
