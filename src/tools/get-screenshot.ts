@@ -14,7 +14,7 @@ const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg']
 // H5: projectRoot is required — screenshots must be within the project
 export async function getScreenshot(projectRoot: string, screenshotPath: string): Promise<ScreenshotInfo> {
   // Security: only allow known image file extensions
-  const resolved = path.resolve(path.resolve(projectRoot), screenshotPath)
+  const resolved = path.resolve(projectRoot, screenshotPath)
   const ext = path.extname(resolved).toLowerCase()
   if (!ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
     throw new Error(`File extension not allowed. Only image files are permitted: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}`)

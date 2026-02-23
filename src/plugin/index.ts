@@ -7,7 +7,6 @@ import { redactSecrets } from '../utils/redact.js'
 import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH, MAX_MESSAGE_LENGTH, MAX_URL_LENGTH } from '../utils/constants.js'
 import { getErrorMessage, getErrnoCode } from '../utils/errors.js'
 import type { CommandEntry, NetworkError } from '../types.js'
-export { redactSecrets }
 
 // ─── Zod schema limits for mcpSaveTestLog task payload ──────────────────────
 const MAX_COMMAND_NAME_LENGTH = 100
