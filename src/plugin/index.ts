@@ -193,14 +193,21 @@ export function cypressMcpPlugin(
     testLogs.clear()
     runTimestamp = new Date().toISOString()
     // Fix #9: Clean up stale snapshots from previous runs — prevents unbounded growth
-    // Security: check for symlink before recursive delete to prevent symlink-following attack
+    // Security: atomically verify snapshotsDir is a real directory (not a symlink) before
+    // recursive delete. O_RDONLY | O_DIRECTORY | O_NOFOLLOW rejects symlinks (ELOOP) and
+    // non-directories (ENOTDIR) in a single syscall, closing the TOCTOU window that existed
+    // with the previous lstatSync + rmSync approach.
     try {
-      if (lstatSync(snapshotsDir).isSymbolicLink()) {
-        process.stderr.write(`[cypress-mcp] Refusing to delete symlink at snapshots dir: ${snapshotsDir}\n`)
+      const fd = openSync(snapshotsDir, constants.O_RDONLY | constants.O_DIRECTORY | O_NOFOLLOW)
+      closeSync(fd)
+    } catch (err) {
+      const code = getErrnoCode(err)
+      if (code === 'ENOENT') return // doesn't exist yet, nothing to clean
+      if (code === 'ELOOP' || code === 'ENOTDIR') {
+        process.stderr.write(`[cypress-mcp] Refusing to delete non-directory at snapshots path: ${snapshotsDir}\n`)
         return
       }
-    } catch {
-      // ENOENT = directory doesn't exist yet, nothing to clean
+      throw err
     }
     rmSync(snapshotsDir, { recursive: true, force: true })
   })

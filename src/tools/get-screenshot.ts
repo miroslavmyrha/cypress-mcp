@@ -26,8 +26,16 @@ export async function getScreenshot(projectRoot: string, screenshotPath: string)
   try {
     statPath = await resolveSecurePath(projectRoot, screenshotPath)
   } catch (err) {
-    // If file doesn't exist, realpath throws ENOENT — fall through to stat below
-    if (getErrnoCode(err) !== 'ENOENT') {
+    if (getErrnoCode(err) === 'ENOENT') {
+      // File doesn't exist — resolveSecurePath couldn't realpath it.
+      // Still enforce containment on the resolved path to prevent traversal
+      // (e.g. if Zod schema is relaxed in the future, this remains a hard boundary).
+      const normalizedRoot = path.resolve(projectRoot)
+      if (!resolved.startsWith(normalizedRoot + path.sep)) {
+        throw new Error('Path must be within the project root')
+      }
+      // fall through to stat below — will return exists: false
+    } else {
       throw err
     }
   }

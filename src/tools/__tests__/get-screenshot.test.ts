@@ -62,6 +62,18 @@ describe('getScreenshot', () => {
     expect(result.sizeBytes).toBeNull()
   })
 
+  it('rejects non-existent file outside project root (ENOENT + containment)', async () => {
+    // HIGH-2: when resolveSecurePath throws ENOENT, the fallback path must still
+    // enforce containment — otherwise a non-existent path outside projectRoot
+    // could bypass the security check.
+    const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    mockRealpath.mockRejectedValue(enoentErr as never)
+
+    await expect(
+      getScreenshot(PROJECT_ROOT, '/etc/nonexistent.png'),
+    ).rejects.toThrow('Path must be within the project root')
+  })
+
   it('rethrows non-ENOENT stat errors', async () => {
     const err = Object.assign(new Error('EACCES'), { code: 'EACCES' })
     mockStat.mockRejectedValue(err as never)

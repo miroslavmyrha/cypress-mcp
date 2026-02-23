@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { cypressMcpPlugin } from '../index.js'
@@ -355,6 +355,28 @@ describe('plugin lifecycle integration', () => {
 
     const data = readLastRun(tempDir)
     expect(data.specs[0].screenshots).toEqual([])
+  })
+
+  it('before:run refuses to delete snapshots dir if it is a symlink', () => {
+    const h = setupPlugin(tempDir)
+    const snapshotsDir = path.join(tempDir, OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR)
+    const targetDir = mkdtempSync(path.join(tmpdir(), 'cypress-mcp-symlink-target-'))
+
+    try {
+      // Create the parent output dir, then place a symlink where snapshots dir would be
+      mkdirSync(path.join(tempDir, OUTPUT_DIR_NAME), { recursive: true })
+      symlinkSync(targetDir, snapshotsDir)
+
+      // before:run should refuse to delete through the symlink
+      h['before:run']()
+
+      // The symlink itself should still exist (not deleted)
+      expect(existsSync(snapshotsDir)).toBe(true)
+      // The target directory should be untouched
+      expect(existsSync(targetDir)).toBe(true)
+    } finally {
+      rmSync(targetDir, { recursive: true, force: true })
+    }
   })
 
   it('atomic write: last-run.json exists (no .tmp file left behind)', () => {
