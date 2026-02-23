@@ -244,7 +244,8 @@ function createMcpServer(projectRoot: string): Server {
       // MCP08: log errors — helps detect path traversal attempts, auth issues, and misuse
       auditLog('tool_error', { tool: name, error: message.slice(0, 200) })
       // L2: strip absolute paths from error messages to avoid leaking internal filesystem structure
-      const sanitized = message.replace(/\/[^\s:]+/g, '[path]')
+      // Match paths like /home/user/project/file.ts — require at least one directory separator
+      const sanitized = message.replace(/\/(?:[\w.@-]+\/)+[\w.@-]+/g, '[path]')
       return { content: [{ type: 'text' as const, text: `Error: ${sanitized}` }], isError: true }
     }
   })
@@ -288,6 +289,9 @@ export function startServer(options: ServerOptions): void {
       'Content-Security-Policy': "default-src 'none'",
     }
 
+    // H10b: Host header validation — pre-computed set (port is fixed for the process lifetime)
+    const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, '127.0.0.1', 'localhost'])
+
     const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       // Apply security headers to every response before any branching
       for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
@@ -308,7 +312,6 @@ export function startServer(options: ServerOptions): void {
       }
 
       // H10b: Host header validation — defence-in-depth against DNS rebinding for non-browser clients
-      const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, '127.0.0.1', 'localhost'])
       const requestHost = req.headers['host'] ?? ''
       if (!allowedHosts.has(requestHost)) {
         res.writeHead(400, { 'Content-Type': 'application/json' })
@@ -364,21 +367,33 @@ export function startServer(options: ServerOptions): void {
       // causes "Already connected to a transport" on concurrent requests.
       const perRequestServer = createMcpServer(projectRoot)
       const perRequestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-      await perRequestServer.connect(perRequestTransport)
-      await perRequestTransport.handleRequest(req, res).catch((err) => {
-        // Log the real error for debugging, but never expose internals to the client
+      try {
+        await perRequestServer.connect(perRequestTransport)
+        await perRequestTransport.handleRequest(req, res).catch((err) => {
+          // Log the real error for debugging, but never expose internals to the client
+          const message = err instanceof Error ? err.message : String(err)
+          auditLog('http_internal_error', { error: message.slice(0, 200) })
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Internal server error' }))
+          }
+        })
+      } catch (err) {
+        // connect() or synchronous handleRequest failure — send 500 so the client isn't left hanging
         const message = err instanceof Error ? err.message : String(err)
         auditLog('http_internal_error', { error: message.slice(0, 200) })
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'Internal server error' }))
         }
-      })
-      // Cleanup: close transport and server to release resources
-      res.on('close', () => {
-        perRequestTransport.close().catch(() => {})
-        perRequestServer.close().catch(() => {})
-      })
+      } finally {
+        // Cleanup: close transport and server to release resources.
+        // Registered in finally to prevent leak if connect() or handleRequest() throws.
+        res.on('close', () => {
+          perRequestTransport.close().catch(() => {})
+          perRequestServer.close().catch(() => {})
+        })
+      }
     })
 
     // Connection timeouts — prevent slow-loris attacks and lingering connections

@@ -138,12 +138,13 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
     // whether to resolve or reject. The timeout handler only kills the child;
     // activeRuns is decremented in close/error where the child has actually exited.
     let timedOut = false
+    let sigkillTimer: ReturnType<typeof setTimeout> | undefined
 
     const timer = setTimeout(() => {
       timedOut = true
       child.kill('SIGTERM')
       // M2: SIGKILL fallback — Cypress/Electron may ignore SIGTERM
-      setTimeout(() => {
+      sigkillTimer = setTimeout(() => {
         try {
           child.kill('SIGKILL')
         } catch {
@@ -166,6 +167,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
 
     child.on('error', (err) => {
       clearTimeout(timer)
+      if (sigkillTimer) clearTimeout(sigkillTimer)
       // F11: remove from active set on exit
       activeProcesses.delete(child)
       decrementOnce()
@@ -179,6 +181,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
 
     child.on('close', (code) => {
       clearTimeout(timer)
+      if (sigkillTimer) clearTimeout(sigkillTimer)
       // F11: remove from active set on exit
       activeProcesses.delete(child)
       decrementOnce()

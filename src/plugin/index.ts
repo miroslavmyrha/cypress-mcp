@@ -175,6 +175,15 @@ export function cypressMcpPlugin(
     testLogs.clear()
     runTimestamp = new Date().toISOString()
     // Fix #9: Clean up stale snapshots from previous runs — prevents unbounded growth
+    // Security: check for symlink before recursive delete to prevent symlink-following attack
+    try {
+      if (lstatSync(snapshotsDir).isSymbolicLink()) {
+        process.stderr.write(`[cypress-mcp] Refusing to delete symlink at snapshots dir: ${snapshotsDir}\n`)
+        return
+      }
+    } catch {
+      // ENOENT = directory doesn't exist yet, nothing to clean
+    }
     rmSync(snapshotsDir, { recursive: true, force: true })
   })
 
