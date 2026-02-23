@@ -65,9 +65,9 @@ describe('getLastRun', () => {
     expect(result).toMatch(/symlink outside the project root/)
   })
 
-  it('returns error message when file exceeds 50 MB', async () => {
+  it('returns error message when file exceeds 5 MB', async () => {
     mockRealpath.mockResolvedValue(REAL_FILE as never)
-    mockStat.mockResolvedValue({ size: 51 * 1024 * 1024 } as never)
+    mockStat.mockResolvedValue({ size: 6 * 1024 * 1024 } as never)
 
     const result = await getLastRun(PROJECT_ROOT)
     expect(result).toMatch(/too large/)

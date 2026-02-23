@@ -72,9 +72,9 @@ describe('queryDom', () => {
     expect(result).toMatch(/symlink outside the project root/)
   })
 
-  it('rejects last-run.json exceeding 50 MB size limit (F7)', async () => {
+  it('rejects last-run.json exceeding 5 MB size limit (F7)', async () => {
     mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
-    mockStat.mockResolvedValueOnce({ size: 51 * 1024 * 1024 } as never) // 51 MB
+    mockStat.mockResolvedValueOnce({ size: 6 * 1024 * 1024 } as never) // 6 MB
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
     expect(result).toMatch(/too large/)
