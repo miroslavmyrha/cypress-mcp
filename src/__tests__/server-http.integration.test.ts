@@ -122,6 +122,16 @@ describe('HTTP server integration', () => {
     })
   }
 
+  // ─── Token validation ──────────────────────────────────────────────────
+
+  describe('token validation', () => {
+    it('rejects token shorter than 32 characters', () => {
+      expect(() => createHttpServer({
+        projectRoot: tempDir, port: 0, version: '0.0.0-test', httpToken: 'short',
+      })).toThrow('httpToken must be at least 32 characters')
+    })
+  })
+
   // ─── Auth tests ─────────────────────────────────────────────────────────
 
   describe('authentication', () => {

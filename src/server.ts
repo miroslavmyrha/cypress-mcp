@@ -219,6 +219,12 @@ export function createHttpServer(options: {
 }): HttpServerResult {
   const { projectRoot, port, version, httpToken } = options
 
+  // L1: validate token length — startServer() enforces this for env var tokens,
+  // but createHttpServer() is public API and must defend itself
+  if (httpToken.length < 32) {
+    throw new Error('httpToken must be at least 32 characters')
+  }
+
   // H9: reject oversized request bodies to prevent OOM
   const MAX_REQUEST_BODY_BYTES = 1_048_576 // 1 MB
 
@@ -311,7 +317,11 @@ export function createHttpServer(options: {
     // Count actual bytes and destroy the socket if the limit is exceeded.
     // Registered here (after early-return checks, before transport reads) with pause()
     // so the stream doesn't flow before the transport registers its own data listener.
-    // Contract: the SDK's handleRequest() resumes the paused stream when it starts reading.
+    // Contract: the SDK's handleRequest() internally converts the stream via Readable.toWeb()
+    // (@hono/node-server request.ts), which resumes the paused stream on first pull.
+    // Verified with @modelcontextprotocol/sdk 1.12.1 / @hono/node-server 1.14.1.
+    // Safety net: if a future SDK update breaks this, the defensive resume() below fires
+    // after 5s and requestTimeout (30s) will eventually kill the connection.
     let receivedBytes = 0
     req.on('data', (chunk: Buffer) => {
       receivedBytes += chunk.length
@@ -320,6 +330,9 @@ export function createHttpServer(options: {
       }
     })
     req.pause()
+    // M1: defensive resume — if the SDK fails to resume the paused stream (e.g. after an update),
+    // this prevents the request from hanging until requestTimeout (30s).
+    const resumeTimer = setTimeout(() => { if (req.isPaused()) req.resume() }, 5_000)
     try {
       await perRequestServer.connect(perRequestTransport)
       await perRequestTransport.handleRequest(req, res).catch((err) => {
@@ -333,6 +346,8 @@ export function createHttpServer(options: {
       const message = getErrorMessage(err)
       auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
       if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
+    } finally {
+      clearTimeout(resumeTimer)
     }
   })
 
