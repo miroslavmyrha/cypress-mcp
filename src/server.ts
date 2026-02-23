@@ -201,6 +201,149 @@ function createMcpServer(projectRoot: string, version: string): Server {
   return server
 }
 
+export interface HttpServerResult {
+  server: import('node:http').Server
+  token: string
+}
+
+/**
+ * Create an HTTP server with all security checks and MCP handler.
+ * Exported separately from startServer() so integration tests can exercise the real handler
+ * without side effects (signal handlers, stderr output, process.exit).
+ */
+export function createHttpServer(options: {
+  projectRoot: string
+  port: number
+  version: string
+  httpToken: string
+}): HttpServerResult {
+  const { projectRoot, port, version, httpToken } = options
+
+  // H9: reject oversized request bodies to prevent OOM
+  const MAX_REQUEST_BODY_BYTES = 1_048_576 // 1 MB
+
+  // MCP Streamable HTTP protocol:
+  //   POST /mcp  → tool call (requires Authorization: Bearer <token>)
+  // Security headers applied to every HTTP response
+  const SECURITY_HEADERS: Record<string, string> = {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
+    'Content-Security-Policy': "default-src 'none'",
+  }
+
+  // H10b: Host header validation — pre-computed set.
+  // When port is 0 (ephemeral), the set is populated on first request from the server's actual address.
+  const allowedHosts = port === 0
+    ? new Set<string>()
+    : new Set([`127.0.0.1:${port}`, `localhost:${port}`, '127.0.0.1', 'localhost'])
+
+  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // Apply security headers to every response before any branching
+    for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
+      res.setHeader(header, value)
+    }
+
+    // H9: reject oversized requests — require Content-Length to prevent unbounded streaming
+    if (req.method === 'POST' && req.headers['content-length'] === undefined) {
+      return sendJsonError(res, 411, 'Content-Length required')
+    }
+    const contentLength = Number(req.headers['content-length'] ?? '0')
+    if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_REQUEST_BODY_BYTES) {
+      return sendJsonError(res, 413, 'Request body too large')
+    }
+
+    // H10b: Host header validation — defence-in-depth against DNS rebinding for non-browser clients
+    // Lazy init for ephemeral port (port 0) — populate from the server's actual address on first request
+    if (allowedHosts.size === 0) {
+      const addr = httpServer.address()
+      const actualPort = typeof addr === 'object' && addr ? addr.port : port
+      allowedHosts.add(`127.0.0.1:${actualPort}`)
+      allowedHosts.add(`localhost:${actualPort}`)
+      allowedHosts.add('127.0.0.1')
+      allowedHosts.add('localhost')
+    }
+    const requestHost = req.headers['host'] ?? ''
+    if (!allowedHosts.has(requestHost)) {
+      return sendJsonError(res, 400, 'Invalid Host header')
+    }
+
+    // H10: reject cross-origin requests to prevent DNS rebinding attacks
+    if (req.headers['origin']) {
+      return sendJsonError(res, 403, 'Cross-origin requests not allowed')
+    }
+
+    if (req.url !== '/mcp') {
+      return sendJsonError(res, 404, 'Not found. Use POST /mcp for tool calls.')
+    }
+
+    // H4: bearer token auth — reject unauthenticated requests before touching MCP transport
+    const authHeader = req.headers['authorization']
+    // OWASP: timing-safe comparison prevents token enumeration via response-time measurement
+    const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : ''
+    const providedBuf = Buffer.from(providedToken)
+    const expectedBuf = Buffer.from(httpToken)
+    const isValidToken =
+      providedBuf.length === expectedBuf.length && timingSafeEqual(providedBuf, expectedBuf)
+    if (!isValidToken) {
+      // MCP08: log auth failures for intrusion detection
+      auditLog('http_auth_rejected', {
+        ip: req.socket.remoteAddress ?? 'unknown',
+        hasHeader: authHeader != null,
+      })
+      return sendJsonError(res, 401, 'Unauthorized')
+    }
+
+    // H1: create a fresh Server + transport per request — SDK 1.26.0 stateless mode
+    // requires a new Server.connect() per request; reusing the same Server instance
+    // causes "Already connected to a transport" on concurrent requests.
+    const perRequestServer = createMcpServer(projectRoot, version)
+    const perRequestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+    // Cleanup: register BEFORE any async work so 'close' is never missed
+    // (e.g., if client disconnects during a long-running tool like run_spec)
+    res.on('close', () => {
+      perRequestTransport.close().catch(() => {})
+      perRequestServer.close().catch(() => {})
+    })
+    // H9b: enforce Content-Length on the body stream — the header is declared-only,
+    // a malicious client can send Content-Length: 100 but stream 10 MB.
+    // Count actual bytes and destroy the socket if the limit is exceeded.
+    // Registered here (after early-return checks, before transport reads) with pause()
+    // so the stream doesn't flow before the transport registers its own data listener.
+    // Contract: the SDK's handleRequest() resumes the paused stream when it starts reading.
+    let receivedBytes = 0
+    req.on('data', (chunk: Buffer) => {
+      receivedBytes += chunk.length
+      if (receivedBytes > MAX_REQUEST_BODY_BYTES) {
+        req.destroy(new Error('Request body exceeded limit'))
+      }
+    })
+    req.pause()
+    try {
+      await perRequestServer.connect(perRequestTransport)
+      await perRequestTransport.handleRequest(req, res).catch((err) => {
+        // Log the real error for debugging, but never expose internals to the client
+        const message = getErrorMessage(err)
+        auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
+        if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
+      })
+    } catch (err) {
+      // connect() or synchronous handleRequest failure — send 500 so the client isn't left hanging
+      const message = getErrorMessage(err)
+      auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
+      if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
+    }
+  })
+
+  // Connection timeouts — prevent slow-loris attacks and lingering connections
+  httpServer.headersTimeout = HEADERS_TIMEOUT_MS
+  httpServer.requestTimeout = REQUEST_TIMEOUT_MS
+  httpServer.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS
+
+  return { server: httpServer, token: httpToken }
+}
+
 export function startServer(options: ServerOptions): void {
   const { projectRoot, transport, port, version } = options
 
@@ -229,112 +372,7 @@ export function startServer(options: ServerOptions): void {
     }
     const httpToken = envToken ?? randomBytes(32).toString('hex')
 
-    // H9: reject oversized request bodies to prevent OOM
-    const MAX_REQUEST_BODY_BYTES = 1_048_576 // 1 MB
-
-    // MCP Streamable HTTP protocol:
-    //   POST /mcp  → tool call (requires Authorization: Bearer <token>)
-    // Security headers applied to every HTTP response
-    const SECURITY_HEADERS: Record<string, string> = {
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'DENY',
-      'Cache-Control': 'no-store',
-      'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy': "default-src 'none'",
-    }
-
-    // H10b: Host header validation — pre-computed set (port is fixed for the process lifetime)
-    const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, '127.0.0.1', 'localhost'])
-
-    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // Apply security headers to every response before any branching
-      for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
-        res.setHeader(header, value)
-      }
-
-      // H9: reject oversized requests — require Content-Length to prevent unbounded streaming
-      if (req.method === 'POST' && req.headers['content-length'] === undefined) {
-        return sendJsonError(res, 411, 'Content-Length required')
-      }
-      const contentLength = Number(req.headers['content-length'] ?? '0')
-      if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_REQUEST_BODY_BYTES) {
-        return sendJsonError(res, 413, 'Request body too large')
-      }
-
-      // H10b: Host header validation — defence-in-depth against DNS rebinding for non-browser clients
-      const requestHost = req.headers['host'] ?? ''
-      if (!allowedHosts.has(requestHost)) {
-        return sendJsonError(res, 400, 'Invalid Host header')
-      }
-
-      // H10: reject cross-origin requests to prevent DNS rebinding attacks
-      if (req.headers['origin']) {
-        return sendJsonError(res, 403, 'Cross-origin requests not allowed')
-      }
-
-      if (req.url !== '/mcp') {
-        return sendJsonError(res, 404, 'Not found. Use POST /mcp for tool calls.')
-      }
-
-      // H4: bearer token auth — reject unauthenticated requests before touching MCP transport
-      const authHeader = req.headers['authorization']
-      // OWASP: timing-safe comparison prevents token enumeration via response-time measurement
-      const providedToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : ''
-      const providedBuf = Buffer.from(providedToken)
-      const expectedBuf = Buffer.from(httpToken)
-      const isValidToken =
-        providedBuf.length === expectedBuf.length && timingSafeEqual(providedBuf, expectedBuf)
-      if (!isValidToken) {
-        // MCP08: log auth failures for intrusion detection
-        auditLog('http_auth_rejected', {
-          ip: req.socket.remoteAddress ?? 'unknown',
-          hasHeader: authHeader != null,
-        })
-        return sendJsonError(res, 401, 'Unauthorized')
-      }
-
-      // H9b: enforce Content-Length on the body stream — the header is declared-only,
-      // a malicious client can send Content-Length: 100 but stream 10 MB.
-      // Count actual bytes and destroy the socket if the limit is exceeded.
-      let receivedBytes = 0
-      req.on('data', (chunk: Buffer) => {
-        receivedBytes += chunk.length
-        if (receivedBytes > MAX_REQUEST_BODY_BYTES) {
-          req.destroy(new Error('Request body exceeded limit'))
-        }
-      })
-
-      // H1: create a fresh Server + transport per request — SDK 1.26.0 stateless mode
-      // requires a new Server.connect() per request; reusing the same Server instance
-      // causes "Already connected to a transport" on concurrent requests.
-      const perRequestServer = createMcpServer(projectRoot, version)
-      const perRequestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-      // Cleanup: register BEFORE any async work so 'close' is never missed
-      // (e.g., if client disconnects during a long-running tool like run_spec)
-      res.on('close', () => {
-        perRequestTransport.close().catch(() => {})
-        perRequestServer.close().catch(() => {})
-      })
-      try {
-        await perRequestServer.connect(perRequestTransport)
-        await perRequestTransport.handleRequest(req, res).catch((err) => {
-          // Log the real error for debugging, but never expose internals to the client
-          const message = getErrorMessage(err)
-          auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
-          if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
-        })
-      } catch (err) {
-        // connect() or synchronous handleRequest failure — send 500 so the client isn't left hanging
-        const message = getErrorMessage(err)
-        auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
-        if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
-      }
-    })
-
-    // Connection timeouts — prevent slow-loris attacks and lingering connections
-    httpServer.headersTimeout = HEADERS_TIMEOUT_MS
-    httpServer.requestTimeout = REQUEST_TIMEOUT_MS
-    httpServer.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS
+    const { server: httpServer } = createHttpServer({ projectRoot, port, version, httpToken })
 
     // H4: bind to loopback only — prevents exposure to LAN / other Docker containers
     httpServer.listen(port, '127.0.0.1', () => {

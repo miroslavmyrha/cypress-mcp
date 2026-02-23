@@ -13,7 +13,6 @@ export default defineConfig({
       exclude: [
         'src/**/__tests__/**',
         'src/cli.ts',
-        'src/server.ts',       // needs integration tests (HTTP + MCP protocol)
         'src/support/index.ts', // browser-side code, requires Cypress runtime
         'src/types.ts',         // type-only file, no runtime code
       ],
