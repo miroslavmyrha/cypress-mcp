@@ -66,8 +66,11 @@ claude mcp add cypress -- npx cypress-mcp --project /absolute/path/to/your/proje
 ### 4b. HTTP transport (Ollama, custom bridges)
 
 ```bash
-# Start MCP server in HTTP mode
+# Start MCP server in HTTP mode (random token printed to stderr)
 npx cypress-mcp --project /path/to/project --transport http --port 3333
+
+# Or with a fixed token for automated deployments
+MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx cypress-mcp --project /path/to/project --transport http --port 3333
 
 # Server listens on:
 #   POST http://localhost:3333/mcp  → tool calls (MCP Streamable HTTP)
@@ -144,6 +147,23 @@ Options:
 
 ```gitignore
 .cypress-mcp/
+```
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `MCP_HTTP_TOKEN` | Set a fixed bearer token for HTTP transport (min 32 chars). If not set, a random token is generated on each start and printed to stderr. |
+
+## Development
+
+This project uses [Bun](https://bun.sh/) as the package manager:
+
+```bash
+bun install
+bun run typecheck
+bun run test
+bun run build
 ```
 
 ## Requirements
