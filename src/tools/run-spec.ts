@@ -1,4 +1,4 @@
-import { lstat, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { redactSecrets } from '../utils/redact.js'
