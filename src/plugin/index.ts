@@ -237,9 +237,4 @@ export function cypressMcpPlugin(
     }
   })
 
-  // cypress run: fires after all specs — no-op, file already written incrementally
-  // (kept for potential future use, e.g. writing aggregate stats)
-  on('after:run', () => {
-    // file is already up to date from after:spec writes
-  })
 }

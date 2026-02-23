@@ -77,7 +77,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
   // Layer 3: extension check — only accept recognised spec file extensions
   if (!SPEC_EXTENSION_RE.test(specPath)) {
     throw new Error(
-      'spec must match *.cy.{ts,js,tsx,jsx,mjs,cjs} or *.spec.{ts,js,tsx,jsx,mjs,cjs}',
+      'spec must match *.cy.{ts,js,tsx,jsx} or *.spec.{ts,js,tsx,jsx}',
     )
   }
 

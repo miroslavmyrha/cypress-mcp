@@ -23,21 +23,12 @@ const MAX_URL_LENGTH = 2_000 // L5: cap network error URLs
 // Finding #4: Sanitize DOM snapshots to remove passwords, tokens, CSRF, and script contents
 function sanitizeDom(html: string): string {
   return html
-    // Redact password input values (order-independent: handles value before or after type)
+    // Redact password and hidden input values in a single pass (order-independent: handles value before or after type)
     // Decode HTML entities in type attribute to prevent bypass via &#112;assword
     .replace(/<input\b[^>]*>/gi, (tag) => {
       const decoded = tag.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
         .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
-      if (/type\s*=\s*["']?password["']?/i.test(decoded)) {
-        return tag.replace(/\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/i, 'value="[redacted]"')
-      }
-      return tag
-    })
-    // Redact hidden input values (CSRF tokens, etc.) (order-independent)
-    .replace(/<input\b[^>]*>/gi, (tag) => {
-      const decoded = tag.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-        .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
-      if (/type\s*=\s*["']?hidden["']?/i.test(decoded)) {
+      if (/type\s*=\s*["']?(?:password|hidden)["']?/i.test(decoded)) {
         return tag.replace(/\bvalue\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/i, 'value="[redacted]"')
       }
       return tag
