@@ -8,7 +8,8 @@ const RUN_SPEC_TIMEOUT_MS = 5 * 60 * 1_000
 const SIGKILL_GRACE_MS = 5_000 // M2: grace period before SIGKILL after SIGTERM
 // M10: cap stdout/stderr accumulation — Cypress can produce tens of MB over a 5-minute run.
 // Trim to 2 KB only happens at output time, but the strings grow in memory during the entire run.
-const MAX_OUTPUT_BUFFER = 100_000 // 100 KB — well above the 2 KB output cap, prevents multi-MB heap growth
+const MAX_OUTPUT_BUFFER = 100_000 // 100 KB — well above the output preview cap, prevents multi-MB heap growth
+const MAX_OUTPUT_PREVIEW_BYTES = 2_000 // 2 KB — quick diagnosis preview; full results via get_last_run
 // Use local cypress binary — more deterministic and secure than npx
 const CYPRESS_BIN = path.join('node_modules', '.bin', 'cypress')
 
@@ -198,7 +199,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
         exitCode: code ?? -1,
         durationMs,
         // F14: redact secrets then surface first 2KB of output for quick diagnosis; full results via get_last_run
-        output: redactSecrets((stdout + stderr).slice(0, 2_000)) || null,
+        output: redactSecrets((stdout + stderr).slice(0, MAX_OUTPUT_PREVIEW_BYTES)) || null,
         message: 'Run complete. Call get_last_run to see full results.',
       }
       resolve(JSON.stringify(result, null, 2))

@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { z } from 'zod'
+import { MAX_TEST_TITLE_LENGTH, MAX_SPEC_PATH_LENGTH } from './constants.js'
 
 // M5: validate list_specs pattern to block directory traversal via glob
 export const ListSpecsArgs = z.object({
@@ -32,8 +33,8 @@ export const GetScreenshotArgs = z.object({
 })
 
 export const QueryDomArgs = z.object({
-  spec: z.string().min(1, 'spec is required').max(2048, 'spec path too long'),
-  testTitle: z.string().min(1, 'testTitle is required').max(500, 'testTitle too long'),
+  spec: z.string().min(1, 'spec is required').max(MAX_SPEC_PATH_LENGTH, 'spec path too long'),
+  testTitle: z.string().min(1, 'testTitle is required').max(MAX_TEST_TITLE_LENGTH, 'testTitle too long'),
   selector: z.string().min(1, 'selector is required'),
 })
 

@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto'
 
+const MAX_SPEC_SLUG_LENGTH = 200
+const MAX_TEST_SLUG_LENGTH = 60
+const HASH_SUFFIX_LENGTH = 8
+
 /**
  * Converts a spec relative path to a safe directory name.
  * e.g. "cypress/e2e/auth/login.cy.ts" → "cypress-e2e-auth-login-cy-ts"
@@ -15,7 +19,7 @@ export function specSlug(relative: string): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .toLowerCase()
-    .slice(0, 200)
+    .slice(0, MAX_SPEC_SLUG_LENGTH)
 }
 
 /**
@@ -26,11 +30,11 @@ export function specSlug(relative: string): string {
  */
 export function testFilename(title: string): string {
   const normalized = title.normalize('NFKC').replace(/[\x00-\x1f\x7f-\x9f]/g, '')
-  const hash = createHash('sha256').update(normalized).digest('hex').slice(0, 8)
+  const hash = createHash('sha256').update(normalized).digest('hex').slice(0, HASH_SUFFIX_LENGTH)
   const safe = normalized
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-    .slice(0, 60)
+    .slice(0, MAX_TEST_SLUG_LENGTH)
   return `${safe}-${hash}.html`
 }

@@ -4,30 +4,41 @@ import path from 'node:path'
 import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
 import { redactSecrets } from '../utils/redact.js'
-import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR } from '../utils/constants.js'
+import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH } from '../utils/constants.js'
 import type { CommandEntry, NetworkError } from '../types.js'
 export { redactSecrets }
+
+// ─── Zod schema limits for mcpSaveTestLog task payload ──────────────────────
+const MAX_COMMAND_NAME_LENGTH = 100
+const MAX_COMMAND_MESSAGE_LENGTH = 1_000
+const MAX_HTTP_METHOD_LENGTH = 10
+const MAX_URL_LENGTH = 2_048
+const MIN_HTTP_STATUS = 100
+const MAX_HTTP_STATUS = 599
+const MAX_COMMANDS_PER_TEST = 200
+const MAX_DOM_SNAPSHOT_LENGTH = 200_000
+const MAX_ERRORS_PER_TEST = 50
 
 // H1: Zod schema for runtime validation of mcpSaveTestLog task payload.
 // TypeScript interfaces provide zero runtime protection — any cy.task() caller can bypass them.
 const CommandEntrySchema = z.object({
-  name: z.string().max(100),
-  message: z.string().max(1_000),
+  name: z.string().max(MAX_COMMAND_NAME_LENGTH),
+  message: z.string().max(MAX_COMMAND_MESSAGE_LENGTH),
 })
 
 const NetworkErrorSchema = z.object({
-  method: z.string().max(10),
-  url: z.string().max(2_048),
-  status: z.number().int().min(100).max(599),
+  method: z.string().max(MAX_HTTP_METHOD_LENGTH),
+  url: z.string().max(MAX_URL_LENGTH),
+  status: z.number().int().min(MIN_HTTP_STATUS).max(MAX_HTTP_STATUS),
 })
 
 const TestLogPayloadSchema = z.object({
-  testTitle: z.string().max(500),
-  commands: z.array(CommandEntrySchema).max(200),
+  testTitle: z.string().max(MAX_TEST_TITLE_LENGTH),
+  commands: z.array(CommandEntrySchema).max(MAX_COMMANDS_PER_TEST),
   // H1: server-side size cap — support/index.ts caps at 100KB but task callers can bypass it
-  domSnapshot: z.string().max(200_000).nullable(),
-  consoleErrors: z.array(z.string().max(1_000)).max(50),
-  networkErrors: z.array(NetworkErrorSchema).max(50),
+  domSnapshot: z.string().max(MAX_DOM_SNAPSHOT_LENGTH).nullable(),
+  consoleErrors: z.array(z.string().max(MAX_COMMAND_MESSAGE_LENGTH)).max(MAX_ERRORS_PER_TEST),
+  networkErrors: z.array(NetworkErrorSchema).max(MAX_ERRORS_PER_TEST),
 })
 
 type TestLogPayload = z.infer<typeof TestLogPayloadSchema>

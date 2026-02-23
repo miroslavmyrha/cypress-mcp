@@ -20,6 +20,13 @@ import {
   RunSpecArgs,
 } from './utils/arg-schemas.js'
 
+// ─── Audit & HTTP limits ─────────────────────────────────────────────────────
+const MAX_AUDIT_ARGS_LENGTH = 500
+const MAX_AUDIT_ERROR_LENGTH = 200
+const HEADERS_TIMEOUT_MS = 10_000
+const REQUEST_TIMEOUT_MS = 30_000
+const KEEP_ALIVE_TIMEOUT_MS = 5_000
+
 // ─── MCP08: Audit logging ──────────────────────────────────────────────────────
 // Writes structured events to stderr for incident investigation.
 // In production, redirect stderr to your log aggregator (journald, CloudWatch, etc.)
@@ -188,7 +195,7 @@ function createMcpServer(projectRoot: string): Server {
     const { name, arguments: args } = request.params
 
     // MCP08: audit every tool invocation for forensic trail
-    auditLog('tool_called', { tool: name, args: JSON.stringify(args ?? {}).slice(0, 500) })
+    auditLog('tool_called', { tool: name, args: JSON.stringify(args ?? {}).slice(0, MAX_AUDIT_ARGS_LENGTH) })
 
     try {
       switch (name) {
@@ -242,7 +249,7 @@ function createMcpServer(projectRoot: string): Server {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       // MCP08: log errors — helps detect path traversal attempts, auth issues, and misuse
-      auditLog('tool_error', { tool: name, error: message.slice(0, 200) })
+      auditLog('tool_error', { tool: name, error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
       // L2: strip absolute paths from error messages to avoid leaking internal filesystem structure
       // Match paths like /home/user/project/file.ts — require at least one directory separator
       const sanitized = message.replace(/\/(?:[\w.@-]+\/)+[\w.@-]+/g, '[path]')
@@ -372,7 +379,7 @@ export function startServer(options: ServerOptions): void {
         await perRequestTransport.handleRequest(req, res).catch((err) => {
           // Log the real error for debugging, but never expose internals to the client
           const message = err instanceof Error ? err.message : String(err)
-          auditLog('http_internal_error', { error: message.slice(0, 200) })
+          auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'Internal server error' }))
@@ -381,7 +388,7 @@ export function startServer(options: ServerOptions): void {
       } catch (err) {
         // connect() or synchronous handleRequest failure — send 500 so the client isn't left hanging
         const message = err instanceof Error ? err.message : String(err)
-        auditLog('http_internal_error', { error: message.slice(0, 200) })
+        auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'Internal server error' }))
@@ -397,9 +404,9 @@ export function startServer(options: ServerOptions): void {
     })
 
     // Connection timeouts — prevent slow-loris attacks and lingering connections
-    httpServer.headersTimeout = 10_000
-    httpServer.requestTimeout = 30_000
-    httpServer.keepAliveTimeout = 5_000
+    httpServer.headersTimeout = HEADERS_TIMEOUT_MS
+    httpServer.requestTimeout = REQUEST_TIMEOUT_MS
+    httpServer.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS
 
     // H4: bind to loopback only — prevents exposure to LAN / other Docker containers
     httpServer.listen(port, '127.0.0.1', () => {
