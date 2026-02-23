@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises'
 import { SPEC_EXTENSIONS } from '../utils/constants.js'
+import { getErrnoCode } from '../utils/errors.js'
 import { resolveSecurePath } from '../utils/path-security.js'
 
 const MAX_FILE_SIZE_BYTES = 500_000 // 500 KB — prevent huge files from filling context
@@ -24,7 +25,7 @@ export async function readSpec(projectRoot: string, specPath: string): Promise<s
   try {
     content = await readFile(real, 'utf-8')
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
+    const code = getErrnoCode(err)
     if (code === 'ENOENT') throw new Error(`Spec file not found: ${specPath}`)
     if (code === 'EACCES') throw new Error(`Permission denied reading: ${specPath}`)
     throw err

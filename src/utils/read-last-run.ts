@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import { z } from 'zod'
 import { LAST_RUN_FILE, MAX_LAST_RUN_BYTES, NO_RESULTS_MESSAGE } from './constants.js'
+import { getErrnoCode } from './errors.js'
 import { resolveSecurePath, PathTraversalError } from './path-security.js'
 
 // H3: runtime schema — superset of fields needed by get-last-run and query-dom.
@@ -45,7 +46,7 @@ export async function readLastRunData(
   try {
     realFilePath = await resolveSecurePath(projectRoot, LAST_RUN_FILE)
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (getErrnoCode(err) === 'ENOENT') {
       return { ok: false, error: NO_RESULTS_MESSAGE }
     }
     if (err instanceof PathTraversalError) {

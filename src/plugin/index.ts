@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { specSlug, testFilename } from '../utils/slug.js'
 import { redactSecrets } from '../utils/redact.js'
 import { OUTPUT_DIR_NAME, SNAPSHOTS_SUBDIR, MAX_TEST_TITLE_LENGTH, MAX_MESSAGE_LENGTH, MAX_URL_LENGTH } from '../utils/constants.js'
+import { getErrorMessage, getErrnoCode } from '../utils/errors.js'
 import type { CommandEntry, NetworkError } from '../types.js'
 export { redactSecrets }
 
@@ -86,7 +87,7 @@ function safeWriteFileSync(filePath: string, content: string): void {
   try {
     fd = openSync(filePath, flags, 0o644)
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ELOOP') {
+    if (getErrnoCode(err) === 'ELOOP') {
       // O_NOFOLLOW rejected a symlink — this is expected and safe
       process.stderr.write(`[cypress-mcp] Refusing to write to symlink: ${filePath}\n`)
       return
@@ -126,7 +127,7 @@ function buildSpecResult(
         domSnapshotPath = path.join(SNAPSHOTS_SUBDIR, slug, filename)
       } catch (err) {
         process.stderr.write(
-          `[cypress-mcp] Failed to write DOM snapshot for "${titlePath}": ${err instanceof Error ? err.message : String(err)}\n`,
+          `[cypress-mcp] Failed to write DOM snapshot for "${titlePath}": ${getErrorMessage(err)}\n`,
         )
       }
     }
@@ -238,7 +239,7 @@ export function cypressMcpPlugin(
       writeRunData()
     } catch (err) {
       process.stderr.write(
-        `[cypress-mcp] Failed to write last-run.json: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[cypress-mcp] Failed to write last-run.json: ${getErrorMessage(err)}\n`,
       )
     } finally {
       testLogs.clear()

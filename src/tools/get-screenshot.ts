@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
+import { getErrnoCode } from '../utils/errors.js'
 import { resolveSecurePath } from '../utils/path-security.js'
 
 export interface ScreenshotInfo {
@@ -26,7 +27,7 @@ export async function getScreenshot(projectRoot: string, screenshotPath: string)
     statPath = await resolveSecurePath(projectRoot, screenshotPath)
   } catch (err) {
     // If file doesn't exist, realpath throws ENOENT — fall through to stat below
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+    if (getErrnoCode(err) !== 'ENOENT') {
       throw err
     }
   }
@@ -35,7 +36,7 @@ export async function getScreenshot(projectRoot: string, screenshotPath: string)
     const stats = await stat(statPath)
     return { path: screenshotPath, exists: true, sizeBytes: stats.size }
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (getErrnoCode(err) === 'ENOENT') {
       return { path: screenshotPath, exists: false, sizeBytes: null }
     }
     throw err

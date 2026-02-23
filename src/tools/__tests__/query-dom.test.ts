@@ -137,7 +137,7 @@ describe('queryDom', () => {
     )
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
-    expect(result).toMatch(/Spec not found/)
+    expect(result).toMatch(/Spec file not found/)
   })
 
   it('returns message when test title is not found in spec', async () => {

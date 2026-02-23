@@ -2,6 +2,7 @@ import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { redactSecrets } from '../utils/redact.js'
 import { SPEC_EXTENSION_RE } from '../utils/constants.js'
+import { getErrnoCode } from '../utils/errors.js'
 import { resolveSecurePath } from '../utils/path-security.js'
 const RUN_SPEC_TIMEOUT_MS = 5 * 60 * 1_000
 const SIGKILL_GRACE_MS = 5_000 // M2: grace period before SIGKILL after SIGTERM
@@ -80,8 +81,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
   try {
     realResolved = await resolveSecurePath(projectRoot, specPath)
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') throw new Error(`Spec file not found: ${specPath}`)
+    if (getErrnoCode(err) === 'ENOENT') throw new Error(`Spec file not found: ${specPath}`)
     throw err
   }
 
@@ -163,7 +163,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
       decrementOnce()
       // L2: strip internal paths from error messages
       const message =
-        (err as NodeJS.ErrnoException).code === 'ENOENT'
+        getErrnoCode(err) === 'ENOENT'
           ? 'Cypress binary not found. Run `npm install cypress` in the project.'
           : 'Failed to start Cypress process.'
       reject(new Error(message))

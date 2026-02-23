@@ -20,6 +20,7 @@ import {
   RunSpecArgs,
   zodInputSchema,
 } from './utils/arg-schemas.js'
+import { getErrorMessage } from './utils/errors.js'
 
 // ─── Audit & HTTP limits ─────────────────────────────────────────────────────
 const MAX_AUDIT_ARGS_LENGTH = 500
@@ -190,7 +191,7 @@ function createMcpServer(projectRoot: string, version: string): Server {
           throw new Error(`Unknown tool: ${name}`)
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = getErrorMessage(err)
       // MCP08: log errors — helps detect path traversal attempts, auth issues, and misuse
       auditLog('tool_error', { tool: name, error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
       return { content: [{ type: 'text' as const, text: `Error: ${sanitizePath(message)}` }], isError: true }
@@ -209,7 +210,7 @@ export function startServer(options: ServerOptions): void {
     const stdioTransport = new StdioServerTransport()
     server.connect(stdioTransport).catch((err) => {
       process.stderr.write(
-        `Failed to start stdio server: ${err instanceof Error ? err.message : String(err)}\n`,
+        `Failed to start stdio server: ${getErrorMessage(err)}\n`,
       )
       process.exit(1)
     })
@@ -312,13 +313,13 @@ export function startServer(options: ServerOptions): void {
         await perRequestServer.connect(perRequestTransport)
         await perRequestTransport.handleRequest(req, res).catch((err) => {
           // Log the real error for debugging, but never expose internals to the client
-          const message = err instanceof Error ? err.message : String(err)
+          const message = getErrorMessage(err)
           auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
           if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
         })
       } catch (err) {
         // connect() or synchronous handleRequest failure — send 500 so the client isn't left hanging
-        const message = err instanceof Error ? err.message : String(err)
+        const message = getErrorMessage(err)
         auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
         if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
       } finally {

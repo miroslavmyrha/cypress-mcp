@@ -2,6 +2,7 @@ import { readFile, stat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { parse, type HTMLElement } from 'node-html-parser'
 import { SNAPSHOTS_SUBDIR, MAX_SELECTOR_LENGTH } from '../utils/constants.js'
+import { getErrorMessage } from '../utils/errors.js'
 import { readLastRunData } from '../utils/read-last-run.js'
 
 const MAX_QUERY_RESULTS = 5
@@ -65,7 +66,7 @@ export async function queryDom(
 
   // Find the test entry — model provides spec + testTitle, never a raw path
   const specEntry = data.specs?.find((s) => s.spec === spec)
-  if (!specEntry) return `Spec not found: ${spec}`
+  if (!specEntry) return `Spec file not found: ${spec}`
 
   const testEntry = specEntry.tests?.find((t) => t.title === testTitle)
   if (!testEntry) return `Test not found: ${testTitle}`
@@ -113,7 +114,7 @@ export async function queryDom(
   try {
     matches = root.querySelectorAll(selector)
   } catch (err) {
-    return `Invalid CSS selector: ${err instanceof Error ? err.message : String(err)}`
+    return `Invalid CSS selector: ${getErrorMessage(err)}`
   }
 
   if (matches.length === 0) {
