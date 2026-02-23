@@ -107,13 +107,13 @@ const TOOL_DEFINITIONS = [
       {
         name: 'get_screenshot',
         description:
-          'Get metadata (existence, size) for a screenshot file reported in get_last_run results. Accepts the absolute path from the screenshots array in get_last_run output. Path must be within the project root.',
+          'Get metadata (existence, size) for a screenshot file reported in get_last_run results. Accepts the path (absolute or relative) from the screenshots array in get_last_run output. Path must be within the project root.',
         inputSchema: {
           type: 'object' as const,
           properties: {
             path: {
               type: 'string',
-              description: 'Absolute path to the screenshot file (from last run results)',
+              description: 'Path to the screenshot file, absolute or relative to project root (from last run results)',
             },
           },
           required: ['path'],

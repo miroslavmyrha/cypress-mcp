@@ -1,12 +1,8 @@
 import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
+import { SPEC_EXTENSIONS } from '../utils/constants.js'
 
 const MAX_FILE_SIZE_BYTES = 500_000 // 500 KB — prevent huge files from filling context
-
-const ALLOWED_SPEC_EXTENSIONS = [
-  '.cy.ts', '.cy.js', '.cy.tsx', '.cy.jsx',
-  '.spec.ts', '.spec.js', '.spec.tsx', '.spec.jsx',
-]
 
 export async function readSpec(projectRoot: string, specPath: string): Promise<string> {
   // Security: prevent path traversal outside project root
@@ -24,9 +20,9 @@ export async function readSpec(projectRoot: string, specPath: string): Promise<s
   }
 
   // Security: only allow known Cypress spec file extensions
-  const hasAllowedExtension = ALLOWED_SPEC_EXTENSIONS.some((ext) => real.endsWith(ext))
+  const hasAllowedExtension = SPEC_EXTENSIONS.some((ext) => real.endsWith(ext))
   if (!hasAllowedExtension) {
-    throw new Error(`File extension not allowed. Only Cypress spec files are permitted: ${ALLOWED_SPEC_EXTENSIONS.join(', ')}`)
+    throw new Error(`File extension not allowed. Only Cypress spec files are permitted: ${SPEC_EXTENSIONS.join(', ')}`)
   }
 
   // Pre-read size check: prevent OOM from huge files before loading into memory

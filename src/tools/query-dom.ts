@@ -1,7 +1,7 @@
 import { readFile, stat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { parse, type HTMLElement } from 'node-html-parser'
-import { SNAPSHOTS_SUBDIR } from '../utils/constants.js'
+import { SNAPSHOTS_SUBDIR, MAX_SELECTOR_LENGTH } from '../utils/constants.js'
 import { readLastRunData } from '../utils/read-last-run.js'
 
 const MAX_QUERY_RESULTS = 5
@@ -10,7 +10,6 @@ const MAX_ELEMENT_LABEL_CHARS = 200 // M6: prevent huge class attribute from blo
 const MAX_BREADCRUMB_CHARS = 500   // M6: cap total breadcrumb output
 const MAX_BREADCRUMB_DEPTH = 50    // M6: limit ancestor traversal depth
 const MAX_SNAPSHOT_FILE_BYTES = 2 * 1_024 * 1_024 // M6: 2 MB HTML cap (prevents O(N²) :nth-child DoS)
-const MAX_SELECTOR_LENGTH = 512    // L4: block excessively long selectors
 const DANGEROUS_TAGS = 'script, style, noscript' // H8: tags to strip before querying
 const BLOCKED_PSEUDOS = [':has(', ':contains(', ':icontains('] // F11: DoS / text-probing vectors
 

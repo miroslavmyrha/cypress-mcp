@@ -1,12 +1,10 @@
 import { glob } from 'glob'
 import path from 'node:path'
-
-// Multiple patterns instead of brace expansion — nobrace:true disables {ts,js,...} syntax
-const DEFAULT_PATTERNS = ['**/*.cy.ts', '**/*.cy.js', '**/*.cy.tsx', '**/*.cy.jsx']
+import { DEFAULT_SPEC_PATTERNS } from '../utils/constants.js'
 const IGNORE_PATTERNS = ['node_modules/**', 'dist/**', '.git/**']
 
 export async function listSpecs(projectRoot: string, pattern?: string): Promise<string[]> {
-  const patterns = pattern ? [pattern] : DEFAULT_PATTERNS
+  const patterns = pattern ? [pattern] : DEFAULT_SPEC_PATTERNS
 
   const matches = await glob(patterns, {
     cwd: projectRoot,

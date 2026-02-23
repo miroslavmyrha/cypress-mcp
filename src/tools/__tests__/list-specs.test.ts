@@ -17,7 +17,10 @@ describe('listSpecs', () => {
     mockGlob.mockResolvedValue([] as never)
     await listSpecs(PROJECT_ROOT)
     expect(mockGlob).toHaveBeenCalledWith(
-      ['**/*.cy.ts', '**/*.cy.js', '**/*.cy.tsx', '**/*.cy.jsx'],
+      [
+        '**/*.cy.ts', '**/*.cy.js', '**/*.cy.tsx', '**/*.cy.jsx',
+        '**/*.spec.ts', '**/*.spec.js', '**/*.spec.tsx', '**/*.spec.jsx',
+      ],
       expect.objectContaining({ cwd: PROJECT_ROOT }),
     )
   })

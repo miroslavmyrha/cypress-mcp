@@ -2,8 +2,7 @@ import { lstat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { redactSecrets } from '../utils/redact.js'
-
-const SPEC_PATTERN = /\.(cy|spec)\.(ts|js|tsx|jsx|mjs|cjs)$/
+import { SPEC_EXTENSION_RE } from '../utils/constants.js'
 const RUN_SPEC_TIMEOUT_MS = 5 * 60 * 1_000
 const SIGKILL_GRACE_MS = 5_000 // M2: grace period before SIGKILL after SIGTERM
 // M10: cap stdout/stderr accumulation — Cypress can produce tens of MB over a 5-minute run.
@@ -76,7 +75,7 @@ async function _runSpec(projectRoot: string, specPath: string, onChildDecrement:
   }
 
   // Layer 3: extension check — only accept recognised spec file extensions
-  if (!SPEC_PATTERN.test(specPath)) {
+  if (!SPEC_EXTENSION_RE.test(specPath)) {
     throw new Error(
       'spec must match *.cy.{ts,js,tsx,jsx,mjs,cjs} or *.spec.{ts,js,tsx,jsx,mjs,cjs}',
     )
