@@ -6,3 +6,4 @@ coverage/
 .cypress-mcp/
 .env
 .env.*
+package-lock.json
