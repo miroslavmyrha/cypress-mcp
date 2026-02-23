@@ -309,6 +309,12 @@ export function startServer(options: ServerOptions): void {
       // causes "Already connected to a transport" on concurrent requests.
       const perRequestServer = createMcpServer(projectRoot, version)
       const perRequestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+      // Cleanup: register BEFORE any async work so 'close' is never missed
+      // (e.g., if client disconnects during a long-running tool like run_spec)
+      res.on('close', () => {
+        perRequestTransport.close().catch(() => {})
+        perRequestServer.close().catch(() => {})
+      })
       try {
         await perRequestServer.connect(perRequestTransport)
         await perRequestTransport.handleRequest(req, res).catch((err) => {
@@ -322,13 +328,6 @@ export function startServer(options: ServerOptions): void {
         const message = getErrorMessage(err)
         auditLog('http_internal_error', { error: message.slice(0, MAX_AUDIT_ERROR_LENGTH) })
         if (!res.headersSent) sendJsonError(res, 500, 'Internal server error')
-      } finally {
-        // Cleanup: close transport and server to release resources.
-        // Registered in finally to prevent leak if connect() or handleRequest() throws.
-        res.on('close', () => {
-          perRequestTransport.close().catch(() => {})
-          perRequestServer.close().catch(() => {})
-        })
       }
     })
 

@@ -16,7 +16,7 @@ const DOM_SNAPSHOT_MAX_BYTES = 100_000
 // Cap error arrays to prevent memory DoS from floods of errors in the app under test
 const MAX_CONSOLE_ERRORS = 20
 const MAX_NETWORK_ERRORS = 20
-const MAX_COMMAND_LOG = 500
+const MAX_COMMAND_LOG = 200
 
 // Finding #4: Sanitize DOM snapshots to remove passwords, tokens, CSRF, and script contents
 function sanitizeDom(html: string): string {
