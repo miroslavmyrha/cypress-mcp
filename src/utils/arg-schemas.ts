@@ -8,6 +8,7 @@ function safeRelativePath(description: string) {
   return z
     .string()
     .min(1, 'path is required')
+    .max(MAX_SPEC_PATH_LENGTH, 'path too long')
     .describe(description)
     .refine((p) => !p.includes('..'), { message: 'must not contain ..' })
     .refine((p) => !path.isAbsolute(p), { message: 'must be a relative path' })
@@ -17,6 +18,7 @@ function safeRelativePath(description: string) {
 export const ListSpecsArgs = z.object({
   pattern: z
     .string()
+    .max(MAX_SPEC_PATH_LENGTH, 'pattern too long')
     .describe('Relative glob pattern (default: **/*.cy.{ts,js,tsx,jsx})')
     .refine((p) => !p.includes('..'), { message: 'pattern must not contain ..' })
     .refine((p) => !path.isAbsolute(p), { message: 'pattern must be a relative path' })
@@ -40,6 +42,7 @@ export const GetScreenshotArgs = z.object({
   path: z
     .string()
     .min(1, 'path is required')
+    .max(MAX_SPEC_PATH_LENGTH, 'path too long')
     .describe('Path to the screenshot file, absolute or relative to project root (from last run results)')
     .refine((p) => !p.includes('..'), { message: 'must not contain ..' }),
 })
