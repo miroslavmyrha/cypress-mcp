@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EventEmitter } from 'node:events'
+import path from 'node:path'
 
 vi.mock('node:fs/promises')
 vi.mock('node:child_process')
@@ -38,6 +39,8 @@ function setupNormalFile() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: realpath returns input unchanged (resolveSecurePath resolves root + file)
+  mockRealpath.mockImplementation((p) => Promise.resolve(p as string) as never)
 })
 
 describe('runSpec', () => {
@@ -210,7 +213,12 @@ describe('runSpec', () => {
 
   it('uses realpath-resolved path in spawn args (TOCTOU fix)', async () => {
     // realpath resolves symlink to a different (but still within-project) path
-    mockRealpath.mockResolvedValue('/fake/project/cypress/e2e/actual-login.cy.ts' as never)
+    // Root must resolve to itself; only the file should resolve to the symlink target
+    mockRealpath.mockImplementation(async (p) => {
+      const str = p.toString()
+      if (str === path.resolve(PROJECT_ROOT)) return str
+      return '/fake/project/cypress/e2e/actual-login.cy.ts'
+    })
     const proc = createMockProcess()
     mockSpawn.mockReturnValue(proc as never)
 

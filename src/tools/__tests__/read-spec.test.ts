@@ -36,9 +36,8 @@ describe('readSpec', () => {
   })
 
   it('throws when file extension is not an allowed spec extension', async () => {
-    mockRealpath.mockResolvedValue(
-      path.resolve(PROJECT_ROOT, 'cypress/e2e/.env') as never,
-    )
+    // Default realpath mock returns input unchanged — resolveSecurePath passes,
+    // then readSpec's extension check rejects .env
 
     await expect(readSpec(PROJECT_ROOT, 'cypress/e2e/.env')).rejects.toThrow(
       'File extension not allowed',
@@ -92,7 +91,12 @@ describe('readSpec', () => {
 
   it('reads the symlink-resolved path (real), not the original path (resolved)', async () => {
     const realTarget = path.resolve(PROJECT_ROOT, 'cypress/e2e/actual-file.cy.ts')
-    mockRealpath.mockResolvedValue(realTarget as never)
+    // Root resolves to itself; only file symlink resolves to a different path
+    mockRealpath.mockImplementation(async (p) => {
+      const str = p.toString()
+      if (str === path.resolve(PROJECT_ROOT)) return str
+      return realTarget
+    })
     mockReadFile.mockResolvedValue('content' as never)
 
     await readSpec(PROJECT_ROOT, 'cypress/e2e/link.cy.ts')

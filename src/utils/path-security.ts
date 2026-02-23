@@ -14,7 +14,8 @@ export class PathTraversalError extends Error {
  * Throws PathTraversalError on traversal. Lets fs errors (ENOENT etc.) propagate to caller.
  */
 export async function resolveSecurePath(root: string, inputPath: string): Promise<string> {
-  const normalizedRoot = path.resolve(root)
+  // Resolve symlinks in root itself — prevents false rejects when projectRoot path contains symlinks
+  const normalizedRoot = await realpath(path.resolve(root))
   const resolved = path.resolve(normalizedRoot, inputPath)
   const rootPrefix = normalizedRoot + path.sep
   if (!resolved.startsWith(rootPrefix)) {

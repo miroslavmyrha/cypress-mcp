@@ -54,8 +54,15 @@ export async function queryDom(
     }
   }
 
-  // F6: normalize projectRoot to prevent containment-check bypass with trailing slashes or relative segments
-  const normalizedRoot = path.resolve(projectRoot)
+  // F6: normalize projectRoot — resolve symlinks so containment check works when root path contains symlinks
+  let normalizedRoot: string
+  try {
+    normalizedRoot = await realpath(path.resolve(projectRoot))
+  } catch {
+    // Root not accessible — delegate to readLastRunData for appropriate error message
+    const result = await readLastRunData(projectRoot)
+    return result.ok ? 'Error: project root is not accessible' : result.error
+  }
   const mcpDir = path.join(normalizedRoot, '.cypress-mcp')
   const snapshotsDir = path.join(mcpDir, SNAPSHOTS_SUBDIR)
 

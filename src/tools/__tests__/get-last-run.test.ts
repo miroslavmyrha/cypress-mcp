@@ -40,13 +40,15 @@ const VALID_RUN_DATA = {
 }
 
 function setupValidFile(data: unknown = VALID_RUN_DATA) {
-  mockRealpath.mockResolvedValue(REAL_FILE as never)
+  // Default realpath mock (returns input) handles root + file resolution
   mockStat.mockResolvedValue({ size: 1000 } as never)
   mockReadFile.mockResolvedValue(JSON.stringify(data) as never)
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: realpath returns input unchanged (resolveSecurePath resolves root + file)
+  mockRealpath.mockImplementation(async (p) => p.toString())
 })
 
 describe('getLastRun', () => {
@@ -66,7 +68,7 @@ describe('getLastRun', () => {
   })
 
   it('returns error message when file exceeds 5 MB', async () => {
-    mockRealpath.mockResolvedValue(REAL_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValue({ size: 6 * 1024 * 1024 } as never)
 
     const result = await getLastRun(PROJECT_ROOT)
@@ -74,7 +76,7 @@ describe('getLastRun', () => {
   })
 
   it('returns error message when file contains invalid JSON', async () => {
-    mockRealpath.mockResolvedValue(REAL_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValue({ size: 100 } as never)
     mockReadFile.mockResolvedValue('{ not valid json' as never)
 
@@ -83,7 +85,7 @@ describe('getLastRun', () => {
   })
 
   it('returns error message when JSON has unexpected structure', async () => {
-    mockRealpath.mockResolvedValue(REAL_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValue({ size: 100 } as never)
     // specs must be an array per schema
     mockReadFile.mockResolvedValue(JSON.stringify({ specs: 'not-an-array' }) as never)

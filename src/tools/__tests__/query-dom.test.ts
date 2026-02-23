@@ -37,9 +37,7 @@ function makeRunData(domSnapshotPath: string | null = SNAPSHOT_REL) {
 }
 
 function setupValidQuery(html = '<div id="app"><button class="btn">Click</button></div>') {
-  mockRealpath
-    .mockResolvedValueOnce(RUN_FILE as never) // last-run.json realpath
-    .mockResolvedValueOnce(SNAPSHOT_ABS as never) // snapshot realpath
+  // Default realpath mock (returns input) handles root + file resolution
   mockReadFile
     .mockResolvedValueOnce(makeRunData() as never) // last-run.json content
     .mockResolvedValueOnce(html as never) // snapshot HTML
@@ -48,6 +46,8 @@ function setupValidQuery(html = '<div id="app"><button class="btn">Click</button
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Default: realpath returns input unchanged (resolveSecurePath resolves root + file)
+  mockRealpath.mockImplementation(async (p) => p.toString())
 })
 
 describe('queryDom', () => {
@@ -66,14 +66,18 @@ describe('queryDom', () => {
   })
 
   it('rejects symlink on last-run.json that resolves outside project root (F4)', async () => {
-    mockRealpath.mockResolvedValueOnce('/etc/evil/last-run.json' as never)
+    mockRealpath.mockImplementation(async (p) => {
+      const str = p.toString()
+      if (str === path.resolve(PROJECT_ROOT)) return str
+      return '/etc/evil/last-run.json'
+    })
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
     expect(result).toMatch(/symlink outside the project root/)
   })
 
   it('rejects last-run.json exceeding 5 MB size limit (F7)', async () => {
-    mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValueOnce({ size: 6 * 1024 * 1024 } as never) // 6 MB
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
@@ -85,8 +89,7 @@ describe('queryDom', () => {
   it('normalizes projectRoot with trailing slash for containment check (F6)', async () => {
     // Use a projectRoot with trailing slash — path.resolve() strips it
     const trailingSlashRoot = '/fake/project/'
-    const runFile = path.join('/fake/project', '.cypress-mcp/last-run.json')
-    mockRealpath.mockResolvedValueOnce(runFile as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
       JSON.stringify({ specs: [{ spec: SPEC, tests: [{ title: TEST_TITLE, state: 'failed', domSnapshotPath: null }] }] }) as never,
@@ -99,7 +102,7 @@ describe('queryDom', () => {
 
   it('rejects path traversal in domSnapshotPath', async () => {
     const traversalPath = '../../../etc/passwd'
-    mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(makeRunData(traversalPath) as never)
 
@@ -108,9 +111,12 @@ describe('queryDom', () => {
   })
 
   it('rejects symlink that resolves outside snapshots directory (double-symlink M9)', async () => {
-    mockRealpath
-      .mockResolvedValueOnce(RUN_FILE as never)
-      .mockResolvedValueOnce('/etc/outside.html' as never) // symlink resolves outside
+    // Root and last-run.json resolve normally; only snapshot symlink resolves outside
+    mockRealpath.mockImplementation(async (p) => {
+      const str = p.toString()
+      if (str === SNAPSHOT_ABS) return '/etc/outside.html'
+      return str
+    })
     mockReadFile.mockResolvedValueOnce(makeRunData() as never)
     mockStat.mockResolvedValue({ size: 100 } as never)
 
@@ -119,18 +125,16 @@ describe('queryDom', () => {
   })
 
   it('rejects snapshot files exceeding 2 MB (M6)', async () => {
-    mockRealpath
-      .mockResolvedValueOnce(RUN_FILE as never)
-      .mockResolvedValueOnce(SNAPSHOT_ABS as never)
+    // Default realpath mock handles all resolution
     mockReadFile.mockResolvedValueOnce(makeRunData() as never)
-    mockStat.mockResolvedValue({ size: 3 * 1024 * 1024 } as never) // 3 MB
+    mockStat.mockResolvedValue({ size: 3 * 1024 * 1024 } as never) // 3 MB — passes 5 MB last-run check, fails 2 MB snapshot check
 
     const result = await queryDom(PROJECT_ROOT, SPEC, TEST_TITLE, 'button')
     expect(result).toMatch(/snapshot file too large/)
   })
 
   it('returns message when spec is not found in run data', async () => {
-    mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
       JSON.stringify({ specs: [{ spec: 'other.cy.ts', tests: [] }] }) as never,
@@ -141,7 +145,7 @@ describe('queryDom', () => {
   })
 
   it('returns message when test title is not found in spec', async () => {
-    mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(
       JSON.stringify({
@@ -154,7 +158,7 @@ describe('queryDom', () => {
   })
 
   it('returns message when test has no DOM snapshot', async () => {
-    mockRealpath.mockResolvedValueOnce(RUN_FILE as never)
+    // Default realpath mock handles root + file resolution
     mockStat.mockResolvedValueOnce({ size: 100 } as never)
     mockReadFile.mockResolvedValueOnce(makeRunData(null) as never)
 

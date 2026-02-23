@@ -28,6 +28,10 @@ const MAX_AUDIT_ERROR_LENGTH = 200
 const HEADERS_TIMEOUT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 30_000
 const KEEP_ALIVE_TIMEOUT_MS = 5_000
+const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMIT_MAX_REQUESTS = 120
+const AUTH_FAILURE_MAX = 5
+const AUTH_LOCKOUT_MS = 60_000
 
 // ─── MCP08: Audit logging ──────────────────────────────────────────────────────
 // Writes structured events to stderr for incident investigation.
@@ -225,6 +229,40 @@ export function createHttpServer(options: {
     throw new Error('httpToken must be at least 32 characters')
   }
 
+  // H12: per-IP rate limiting — fixed-window counter to prevent DoS via rapid tool call flood
+  const rateLimits = new Map<string, { count: number; windowStart: number }>()
+  const authFailureCounts = new Map<string, { count: number; blockedUntil: number }>()
+
+  function isRateLimited(ip: string): boolean {
+    const now = Date.now()
+    const entry = rateLimits.get(ip)
+    if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+      rateLimits.set(ip, { count: 1, windowStart: now })
+      return false
+    }
+    entry.count++
+    return entry.count > RATE_LIMIT_MAX_REQUESTS
+  }
+
+  function isAuthLocked(ip: string): boolean {
+    const entry = authFailureCounts.get(ip)
+    if (!entry) return false
+    if (Date.now() >= entry.blockedUntil) {
+      authFailureCounts.delete(ip)
+      return false
+    }
+    return true
+  }
+
+  function recordAuthFailure(ip: string): void {
+    const entry = authFailureCounts.get(ip) ?? { count: 0, blockedUntil: 0 }
+    entry.count++
+    if (entry.count >= AUTH_FAILURE_MAX) {
+      entry.blockedUntil = Date.now() + AUTH_LOCKOUT_MS
+    }
+    authFailureCounts.set(ip, entry)
+  }
+
   // H9: reject oversized request bodies to prevent OOM
   const MAX_REQUEST_BODY_BYTES = 1_048_576 // 1 MB
 
@@ -251,8 +289,13 @@ export function createHttpServer(options: {
       res.setHeader(header, value)
     }
 
+    // H13: only allow POST — MCP Streamable HTTP protocol uses POST for tool calls
+    if (req.method !== 'POST') {
+      return sendJsonError(res, 405, 'Method not allowed')
+    }
+
     // H9: reject oversized requests — require Content-Length to prevent unbounded streaming
-    if (req.method === 'POST' && req.headers['content-length'] === undefined) {
+    if (req.headers['content-length'] === undefined) {
       return sendJsonError(res, 411, 'Content-Length required')
     }
     const contentLength = Number(req.headers['content-length'] ?? '0')
@@ -284,6 +327,18 @@ export function createHttpServer(options: {
       return sendJsonError(res, 404, 'Not found. Use POST /mcp for tool calls.')
     }
 
+    const clientIp = req.socket.remoteAddress ?? 'unknown'
+
+    // H12: rate limiting — prevent DoS via rapid tool call flood
+    if (isRateLimited(clientIp)) {
+      return sendJsonError(res, 429, 'Too many requests')
+    }
+
+    // H14: auth failure lockout — prevent token brute-force
+    if (isAuthLocked(clientIp)) {
+      return sendJsonError(res, 429, 'Too many failed auth attempts')
+    }
+
     // H4: bearer token auth — reject unauthenticated requests before touching MCP transport
     const authHeader = req.headers['authorization']
     // OWASP: timing-safe comparison prevents token enumeration via response-time measurement
@@ -293,9 +348,10 @@ export function createHttpServer(options: {
     const isValidToken =
       providedBuf.length === expectedBuf.length && timingSafeEqual(providedBuf, expectedBuf)
     if (!isValidToken) {
+      recordAuthFailure(clientIp)
       // MCP08: log auth failures for intrusion detection
       auditLog('http_auth_rejected', {
-        ip: req.socket.remoteAddress ?? 'unknown',
+        ip: clientIp,
         hasHeader: authHeader != null,
       })
       return sendJsonError(res, 401, 'Unauthorized')
@@ -393,6 +449,9 @@ export function startServer(options: ServerOptions): void {
     httpServer.listen(port, '127.0.0.1', () => {
       process.stderr.write(`cypress-mcp HTTP server listening on 127.0.0.1:${port}\n`)
       process.stderr.write(`  Authorization: Bearer ${envToken ? '(from MCP_HTTP_TOKEN)' : httpToken}\n`)
+      if (!envToken) {
+        process.stderr.write('  Warning: auto-generated token. Set MCP_HTTP_TOKEN env var for production.\n')
+      }
       process.stderr.write(`  POST http://127.0.0.1:${port}/mcp  → tool calls\n`)
       process.stderr.write(`  Project root: ${projectRoot}\n`)
     })

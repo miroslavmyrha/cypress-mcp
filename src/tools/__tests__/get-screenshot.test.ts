@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import path from 'node:path'
 
 vi.mock('node:fs/promises')
 
@@ -24,7 +25,12 @@ describe('getScreenshot', () => {
   })
 
   it('throws when symlink resolves outside project root', async () => {
-    mockRealpath.mockResolvedValue('/etc/shadow' as never)
+    // Root resolves to itself; only file symlink resolves outside project
+    mockRealpath.mockImplementation(async (p) => {
+      const str = p.toString()
+      if (str === path.resolve(PROJECT_ROOT)) return str
+      return '/etc/shadow'
+    })
 
     await expect(
       getScreenshot(PROJECT_ROOT, `${PROJECT_ROOT}/cypress/screenshots/evil-link.png`),
