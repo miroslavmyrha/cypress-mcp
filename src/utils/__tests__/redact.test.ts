@@ -47,7 +47,7 @@ describe('redactSecrets', () => {
 
   it('redacts key: value secret pairs (token: xyz)', () => {
     const result = redactSecrets('token: abc-xyz-secret')
-    expect(result).toContain('token=[redacted]')
+    expect(result).toContain('token: [redacted]')
     expect(result).not.toContain('abc-xyz-secret')
   })
 
