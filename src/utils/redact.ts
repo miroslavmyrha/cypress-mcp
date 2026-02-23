@@ -5,7 +5,7 @@
 const JWT_RE = /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]*)?/g
 // Fix #2: JSON-formatted secrets like "password":"secret123" bypass the key=value SECRET_RE
 const SECRET_JSON_RE = /"(password|secret|token|key|auth|bearer|passwd|credential)"\s*:\s*"[^"]{3,}"/gi
-const SECRET_RE = /(password|secret|token|key|auth|bearer|passwd|credential)(\s*[=:]\s*)["']?[^\s"',}\]]{3,}/gi
+const SECRET_RE = /(password|secret|token|key|auth|bearer|passwd|credential)(\s*[=:]\s*)["']?[^\s"',}\]]{3,}["']?/gi
 const BEARER_HEADER_RE = /\bBearer\s+[A-Za-z0-9_\-/.+=]{10,}/gi
 const CONNECTION_STRING_RE = /(?:postgres|mysql|mongo(?:db(?:\+srv)?)?|rediss?|amqps?|mssql)(?:ql)?:\/\/[^\s]+/gi
 

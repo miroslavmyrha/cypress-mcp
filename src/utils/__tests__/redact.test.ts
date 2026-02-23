@@ -51,6 +51,16 @@ describe('redactSecrets', () => {
     expect(result).not.toContain('abc-xyz-secret')
   })
 
+  it('redacts single-quoted secret values without leaving trailing quote', () => {
+    const result = redactSecrets("password='SuperSecret123'")
+    expect(result).toBe("password=[redacted]")
+  })
+
+  it('redacts double-quoted secret values without leaving trailing quote', () => {
+    const result = redactSecrets('token="my-api-token-value"')
+    expect(result).toBe('token=[redacted]')
+  })
+
   it('redacts short 3-char secret values', () => {
     const result = redactSecrets('password=ab3')
     expect(result).toContain('password=[redacted]')
