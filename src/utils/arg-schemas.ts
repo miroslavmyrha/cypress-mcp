@@ -31,6 +31,8 @@ export const ReadSpecArgs = z.object({
   path: safeRelativePath('Relative path to the spec file (from project root)'),
 })
 
+export const GetConfigArgs = z.object({})
+
 export const GetLastRunArgs = z.object({
   failedOnly: z
     .boolean()

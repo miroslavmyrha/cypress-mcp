@@ -380,7 +380,7 @@ describe('HTTP server integration', () => {
       const parsed = parseSseBody(res.body) as { result: { tools: Array<{ name: string }> } }
       const names = parsed.result.tools.map((t) => t.name).sort()
       expect(names).toEqual([
-        'get_last_run', 'get_screenshot', 'list_specs', 'query_dom', 'read_spec', 'run_spec',
+        'get_config', 'get_last_run', 'get_screenshot', 'list_specs', 'query_dom', 'read_spec', 'run_spec',
       ])
     })
 

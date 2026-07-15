@@ -1,7 +1,19 @@
 {
-  "name": "cypress-mcp",
+  "name": "@miroslavmyrha/cypress-mcp",
   "version": "0.1.0",
   "description": "MCP server for Cypress test runner — lets Claude read spec files and test results",
+  "author": "Miroslav Myrha",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miroslavmyrha/cypress-mcp.git"
+  },
+  "homepage": "https://github.com/miroslavmyrha/cypress-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/miroslavmyrha/cypress-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "bin": {
     "cypress-mcp": "./dist/cli.js"
@@ -20,7 +32,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "~1.26.0",

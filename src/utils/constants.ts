@@ -19,6 +19,12 @@ export const DEFAULT_SPEC_PATTERNS = [
   '**/*.spec.ts', '**/*.spec.js', '**/*.spec.tsx', '**/*.spec.jsx',
 ]
 
+// ─── Screenshot embedding ────────────────────────────────────────────────────
+// Screenshots up to this size are returned inline as an MCP image content block.
+// Larger files return metadata only — base64 of a multi-MB image would blow up
+// the context window and the MCP message size.
+export const MAX_SCREENSHOT_EMBED_BYTES = 2 * 1_024 * 1_024 // 2 MB
+
 // ─── Shared messages ────────────────────────────────────────────────────────
 export const NO_RESULTS_MESSAGE = 'No test results yet. Run Cypress tests first (cypress open or cypress run).'
 
