@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { listSpecs } from './tools/list-specs.js'
 import { readSpec } from './tools/read-spec.js'
+import { getConfig } from './tools/get-config.js'
 import { getLastRun } from './tools/get-last-run.js'
 import { getScreenshot } from './tools/get-screenshot.js'
 import { queryDom } from './tools/query-dom.js'
@@ -14,6 +15,7 @@ import { wrapUntrusted } from './utils/wrap-untrusted.js'
 import {
   ListSpecsArgs,
   ReadSpecArgs,
+  GetConfigArgs,
   GetLastRunArgs,
   GetScreenshotArgs,
   QueryDomArgs,
@@ -83,6 +85,12 @@ const TOOL_DEFINITIONS = [
     inputSchema: zodInputSchema(ReadSpecArgs),
   },
   {
+    name: 'get_config',
+    description:
+      'Read the Cypress configuration file (cypress.config.ts/js/mjs/cjs) from the project root. Useful for finding baseUrl, specPattern, and timeouts. Secret-looking values are redacted.',
+    inputSchema: zodInputSchema(GetConfigArgs),
+  },
+  {
     name: 'get_last_run',
     description: [
       'Get the results of the last Cypress test run.',
@@ -97,8 +105,12 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'get_screenshot',
-    description:
-      'Get metadata (existence, size) for a screenshot file reported in get_last_run results. Accepts the path (absolute or relative) from the screenshots array in get_last_run output. Path must be within the project root.',
+    description: [
+      'Get a screenshot file reported in get_last_run results.',
+      'Returns the image itself (as an image content block, up to 2 MB) plus metadata (existence, size).',
+      'Accepts the path (absolute or relative) from the screenshots array in get_last_run output.',
+      'Path must be within the project root.',
+    ].join(' '),
     inputSchema: zodInputSchema(GetScreenshotArgs),
   },
   {
@@ -157,6 +169,12 @@ function createMcpServer(projectRoot: string, version: string): Server {
           return { content: [{ type: 'text' as const, text: content }] }
         }
 
+        case 'get_config': {
+          GetConfigArgs.parse(args ?? {})
+          const config = await getConfig(projectRoot)
+          return { content: [{ type: 'text' as const, text: `// ${config.file}\n\n${config.content}` }] }
+        }
+
         case 'get_last_run': {
           const { failedOnly } = GetLastRunArgs.parse(args ?? {})
           const result = await getLastRun(projectRoot, failedOnly)
@@ -167,8 +185,13 @@ function createMcpServer(projectRoot: string, version: string): Server {
         case 'get_screenshot': {
           const { path } = GetScreenshotArgs.parse(args)
           // H5: pass projectRoot so getScreenshot can enforce the path boundary
-          const info = await getScreenshot(projectRoot, path)
-          return { content: [{ type: 'text' as const, text: wrapUntrusted(JSON.stringify(info, null, 2)) }] }
+          const { image, ...info } = await getScreenshot(projectRoot, path)
+          const content: Array<
+            { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+          > = [{ type: 'text' as const, text: wrapUntrusted(JSON.stringify(info, null, 2)) }]
+          // Image bytes are binary content, not instruction-bearing text — no untrusted wrapper
+          if (image) content.push({ type: 'image' as const, data: image.data, mimeType: image.mimeType })
+          return { content }
         }
 
         case 'query_dom': {

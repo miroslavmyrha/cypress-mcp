@@ -19,14 +19,16 @@ Claude → MCP server → get_last_run → reads last-run.json
 ### 1. Install
 
 ```bash
-npm install -D cypress-mcp
+npm install -D @miroslavmyrha/cypress-mcp
 ```
+
+> Note: the unscoped `cypress-mcp` name on npm belongs to an unrelated project — always use the scoped `@miroslavmyrha/cypress-mcp`.
 
 ### 2. Register the plugin — `cypress.config.ts`
 
 ```typescript
 import { defineConfig } from 'cypress'
-import { cypressMcpPlugin } from 'cypress-mcp/plugin'
+import { cypressMcpPlugin } from '@miroslavmyrha/cypress-mcp/plugin'
 
 export default defineConfig({
   e2e: {
@@ -40,7 +42,7 @@ export default defineConfig({
 ### 3. Import support — `cypress/support/e2e.ts`
 
 ```typescript
-import 'cypress-mcp/support'
+import '@miroslavmyrha/cypress-mcp/support'
 ```
 
 ### 4a. Configure Claude Desktop / Claude Code (stdio transport)
@@ -52,7 +54,7 @@ In your MCP settings (`~/.config/claude/claude_desktop_config.json` or `claude m
   "mcpServers": {
     "cypress": {
       "command": "npx",
-      "args": ["cypress-mcp", "--project", "/absolute/path/to/your/project"]
+      "args": ["-y", "@miroslavmyrha/cypress-mcp", "--project", "/absolute/path/to/your/project"]
     }
   }
 }
@@ -60,17 +62,17 @@ In your MCP settings (`~/.config/claude/claude_desktop_config.json` or `claude m
 
 Or with `claude mcp add`:
 ```bash
-claude mcp add cypress -- npx cypress-mcp --project /absolute/path/to/your/project
+claude mcp add cypress -- npx -y @miroslavmyrha/cypress-mcp --project /absolute/path/to/your/project
 ```
 
 ### 4b. HTTP transport (Ollama, custom bridges)
 
 ```bash
 # Start MCP server in HTTP mode (random token printed to stderr)
-npx cypress-mcp --project /path/to/project --transport http --port 3333
+npx -y @miroslavmyrha/cypress-mcp --project /path/to/project --transport http --port 3333
 
 # Or with a fixed token for automated deployments
-MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx cypress-mcp --project /path/to/project --transport http --port 3333
+MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx -y @miroslavmyrha/cypress-mcp --project /path/to/project --transport http --port 3333
 
 # Server listens on:
 #   POST http://localhost:3333/mcp  → tool calls (MCP Streamable HTTP)
@@ -82,8 +84,9 @@ MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx cypress-mcp --project /path/to/projec
 |------|-------------|
 | `list_specs` | List all Cypress spec files. Optional `pattern` glob (default: `**/*.cy.{ts,js,tsx,jsx}`) |
 | `read_spec` | Read a spec file's content by relative path |
+| `get_config` | Read the Cypress config file (`cypress.config.ts/js/mjs/cjs`), secret-looking values redacted |
 | `get_last_run` | Get results of the last test run: states, errors, command log, DOM snapshots |
-| `get_screenshot` | Get info about a screenshot file: path, exists, size |
+| `get_screenshot` | Get a screenshot from the last run — returns the image itself (up to 2 MB) plus path and size metadata |
 | `query_dom` | Query the DOM snapshot of a failed test using a CSS selector |
 | `run_spec` | Run a single Cypress spec file and wait for completion. Returns exit code and summary |
 
