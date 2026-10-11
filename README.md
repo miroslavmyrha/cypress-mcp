@@ -1,6 +1,6 @@
 # cypress-mcp
 
-MCP server that connects Claude to your Cypress test runner. Claude can read your spec files and see exactly what happened in the last test run — which commands ran, what failed, error messages, and DOM snapshots.
+MCP server that connects Claude to your Cypress test runner. Claude can read your spec files and see exactly what happened in the last test run: which commands ran, what failed, error messages, and DOM snapshots.
 
 ## Example
 
@@ -77,9 +77,9 @@ npm install -D /absolute/path/to/cypress-mcp
 
 Once it is published, this becomes `npm install -D @miroslavmyrha/cypress-mcp`, and the `npx -y @miroslavmyrha/cypress-mcp` commands below work without the local install.
 
-> Note: the unscoped `cypress-mcp` name on npm belongs to an unrelated project — always use the scoped `@miroslavmyrha/cypress-mcp`.
+> Note: the unscoped `cypress-mcp` name on npm belongs to an unrelated project. Always use the scoped `@miroslavmyrha/cypress-mcp`.
 
-### 2. Register the plugin — `cypress.config.ts`
+### 2. Register the plugin in `cypress.config.ts`
 
 ```typescript
 import { defineConfig } from 'cypress'
@@ -94,7 +94,7 @@ export default defineConfig({
 })
 ```
 
-### 3. Import support — `cypress/support/e2e.ts`
+### 3. Import support in `cypress/support/e2e.ts`
 
 ```typescript
 import '@miroslavmyrha/cypress-mcp/support'
@@ -141,11 +141,11 @@ MCP_HTTP_TOKEN=$(openssl rand -hex 32) npx -y @miroslavmyrha/cypress-mcp --proje
 | `read_spec` | Read a spec file's content by relative path |
 | `get_config` | Read the Cypress config file (`cypress.config.ts/js/mjs/cjs`), secret-looking values redacted |
 | `get_last_run` | Get results of the last test run: states, errors, command log, DOM snapshots |
-| `get_screenshot` | Get a screenshot from the last run — returns the image itself (up to 2 MB) plus path and size metadata |
+| `get_screenshot` | Get a screenshot from the last run. Returns the image itself (up to 2 MB) plus path and size metadata |
 | `query_dom` | Query the DOM snapshot of a failed test using a CSS selector |
 | `run_spec` | Run a single Cypress spec file and wait for completion. Returns exit code and summary |
 
-## Output format — `.cypress-mcp/last-run.json`
+## Output format of `.cypress-mcp/last-run.json`
 
 ```json
 {
