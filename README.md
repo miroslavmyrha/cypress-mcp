@@ -18,9 +18,17 @@ Claude → MCP server → get_last_run → reads last-run.json
 
 ### 1. Install
 
+The package is not published to npm yet. Until it is, build it from source and install it from the local folder:
+
 ```bash
-npm install -D @miroslavmyrha/cypress-mcp
+git clone https://github.com/miroslavmyrha/cypress-mcp.git
+cd cypress-mcp && bun install && bun run build
+
+# in your Cypress project
+npm install -D /absolute/path/to/cypress-mcp
 ```
+
+Once it is published, this becomes `npm install -D @miroslavmyrha/cypress-mcp`, and the `npx -y @miroslavmyrha/cypress-mcp` commands below work without the local install.
 
 > Note: the unscoped `cypress-mcp` name on npm belongs to an unrelated project — always use the scoped `@miroslavmyrha/cypress-mcp`.
 
