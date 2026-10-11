@@ -2,6 +2,53 @@
 
 MCP server that connects Claude to your Cypress test runner. Claude can read your spec files and see exactly what happened in the last test run — which commands ran, what failed, error messages, and DOM snapshots.
 
+## Example
+
+A spec with three tests, the last of which fails:
+
+```js
+it('shows a counter of finished items', () => {
+  cy.get('.todo-list li').first().find('input[type=checkbox]').check()
+  cy.get('[data-test=finished-count]').should('contain', '1')
+})
+```
+
+After `cypress run`, the assistant calls `get_last_run` and gets the commands that ran, the error and the path of a DOM snapshot (output shortened):
+
+```json
+{
+  "title": "Todo list > shows a counter of finished items",
+  "state": "failed",
+  "domSnapshotPath": "snapshots/cypress-e2e-todo-cy-js/todo-list-shows-a-counter-of-finished-items-d963bb8d.html",
+  "commands": [
+    { "name": "visit", "message": "https://example.cypress.io/todo" },
+    { "name": "get", "message": ".todo-list li" },
+    { "name": "first", "message": "" },
+    { "name": "find", "message": "input[type=checkbox]" },
+    { "name": "check", "message": "" },
+    { "name": "get", "message": "[data-test=finished-count]" }
+  ],
+  "error": "AssertionError: Timed out retrying after 2000ms: Expected to find element: `[data-test=finished-count]`, but never found it."
+}
+```
+
+It can then look into the page as it was when the test failed. `query_dom` with the selector `.todo-count`:
+
+```json
+{
+  "selector": ".todo-count",
+  "totalMatches": 1,
+  "results": [
+    {
+      "breadcrumb": "body > section.todoapp-wrapper > div.todoapp > footer.footer > span.todo-count",
+      "outerHTML": "<span class=\"todo-count\"><strong>1</strong> item left</span>"
+    }
+  ]
+}
+```
+
+So the counter exists, under another selector, and the assistant can fix the test without anyone pasting logs into the chat.
+
 ## How it works
 
 ```
