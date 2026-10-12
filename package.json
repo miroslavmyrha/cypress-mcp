@@ -16,7 +16,7 @@
   },
   "type": "module",
   "bin": {
-    "cypress-mcp": "./dist/cli.js"
+    "cypress-mcp": "dist/cli.js"
   },
   "exports": {
     ".": "./dist/server.js",
