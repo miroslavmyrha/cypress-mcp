@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.miroslavmyrha/cypress-mcp",
+  "description": "Shows an AI assistant the last cypress run: command log, errors, screenshots, DOM of failed tests.",
+  "repository": {
+    "url": "https://github.com/miroslavmyrha/cypress-mcp",
+    "source": "github"
+  },
+  "version": "0.1.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@miroslavmyrha/cypress-mcp",
+      "version": "0.1.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

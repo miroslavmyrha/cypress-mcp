@@ -1,6 +1,7 @@
 {
   "name": "@miroslavmyrha/cypress-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
+  "mcpName": "io.github.miroslavmyrha/cypress-mcp",
   "description": "MCP server that shows an AI assistant the last cypress run: command log, errors, screenshots and DOM snapshots of failed tests",
   "author": "Miroslav Myrha",
   "repository": {
