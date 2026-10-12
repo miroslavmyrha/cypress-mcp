@@ -1,6 +1,12 @@
 # cypress-mcp
 
-MCP server that connects Claude to your Cypress test runner. Claude can read your spec files and see exactly what happened in the last test run: which commands ran, what failed, error messages, and DOM snapshots.
+MCP server that shows an AI assistant what happened in your last `cypress run`: which commands each test ran, what failed, the error, a screenshot, and the page as it was at the moment of the failure.
+
+It is made for headless runs, on your machine and in CI. That is the place the official tools do not reach, see [How it compares](#how-it-compares).
+
+```bash
+npm install -D @miroslavmyrha/cypress-mcp
+```
 
 ## Example
 
@@ -52,7 +58,7 @@ So the counter exists, under another selector, and the assistant can fix the tes
 ## How it works
 
 ```
-cypress open → test runs in browser
+cypress run → tests run
   → support/index.ts captures Cypress command log per test
   → cy.task('mcpSaveTestLog') transfers logs to node side
   → plugin/index.ts stores logs in memory
@@ -61,21 +67,31 @@ cypress open → test runs in browser
 Claude → MCP server → get_last_run → reads last-run.json
 ```
 
+## How it compares
+
+Cypress has two tools of its own for AI assistants. They cover other situations than this one.
+
+| | this package | [`cypress tap`](https://docs.cypress.io/app/tooling/cypress-tap) | [Cypress Cloud MCP](https://docs.cypress.io/cloud/integrations/cloud-mcp) |
+|---|---|---|---|
+| Reads | the last local `cypress run` | a live `cypress open` session | runs recorded to Cypress Cloud |
+| Headless runs and CI | yes | no | only what was recorded |
+| Command log and DOM of a failed test | yes | yes | no, links to Test Replay |
+| Needs | Cypress 12 or newer, a plugin and a support import | Cypress 15.21 or newer, a Chromium browser | a Cypress Cloud account |
+| Interface | MCP (stdio or HTTP) | command line | MCP |
+
+Use `cypress tap` while you write a test with the Cypress app open. Use this package when the tests run headless and the assistant should see why one failed.
+
+The results are written in the `after:spec` event, which Cypress fires in run mode. In `cypress open` that event needs [`experimentalInteractiveRunEvents`](https://docs.cypress.io/app/references/experiments).
+
+Before anything reaches the assistant, values that look like secrets are redacted, and content that comes from the tested application is marked as untrusted data.
+
 ## Setup
 
 ### 1. Install
 
-The package is not published to npm yet. Until it is, build it from source and install it from the local folder:
-
 ```bash
-git clone https://github.com/miroslavmyrha/cypress-mcp.git
-cd cypress-mcp && bun install && bun run build
-
-# in your Cypress project
-npm install -D /absolute/path/to/cypress-mcp
+npm install -D @miroslavmyrha/cypress-mcp
 ```
-
-Once it is published, this becomes `npm install -D @miroslavmyrha/cypress-mcp`, and the `npx -y @miroslavmyrha/cypress-mcp` commands below work without the local install.
 
 > Note: the unscoped `cypress-mcp` name on npm belongs to an unrelated project. Always use the scoped `@miroslavmyrha/cypress-mcp`.
 
@@ -231,7 +247,7 @@ bun run build
 ## Requirements
 
 - Node.js 18+
-- Cypress 12+
+- Cypress 12+ (developed and tested with Cypress 13)
 
 ## Author
 
