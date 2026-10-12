@@ -1,5 +1,9 @@
 # cypress-mcp
 
+[![npm](https://img.shields.io/npm/v/@miroslavmyrha/cypress-mcp)](https://www.npmjs.com/package/@miroslavmyrha/cypress-mcp)
+[![CI](https://github.com/miroslavmyrha/cypress-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/miroslavmyrha/cypress-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 MCP server that shows an AI assistant what happened in your last `cypress run`: which commands each test ran, what failed, the error, a screenshot, and the page as it was at the moment of the failure.
 
 It is made for headless runs, on your machine and in CI. That is the place the official tools do not reach, see [How it compares](#how-it-compares).
