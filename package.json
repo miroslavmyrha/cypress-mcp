@@ -1,7 +1,7 @@
 {
   "name": "@miroslavmyrha/cypress-mcp",
-  "version": "0.1.0",
-  "description": "MCP server for Cypress test runner — lets Claude read spec files and test results",
+  "version": "0.1.1",
+  "description": "MCP server that shows an AI assistant the last cypress run: command log, errors, screenshots and DOM snapshots of failed tests",
   "author": "Miroslav Myrha",
   "repository": {
     "type": "git",
@@ -64,10 +64,16 @@
   },
   "keywords": [
     "cypress",
+    "cypress-run",
     "mcp",
     "model-context-protocol",
+    "ai",
+    "agent",
     "claude",
-    "testing"
+    "e2e",
+    "testing",
+    "ci",
+    "debugging"
   ],
   "license": "MIT",
   "packageManager": "bun@1.2.0"

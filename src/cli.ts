@@ -10,7 +10,7 @@ const pkg = JSON.parse(readFileSync(path.join(__dirname, '../package.json'), 'ut
 
 new Command()
   .name('cypress-mcp')
-  .description('MCP server for Cypress — gives Claude access to spec files and test results')
+  .description('MCP server for Cypress: gives an AI assistant access to spec files and the results of the last run')
   .version(pkg.version)
   .option('--project <path>', 'Cypress project root', process.cwd())
   .option('--transport <type>', 'Transport type: stdio (default) or http', 'stdio')
